@@ -832,12 +832,13 @@ class FX {
   }
   // shuttle trail: one emitter per serve that keeps ticking for the rest of the match
   trail(shuttle) {
-    const t = { pts: [], rate: 0, attached: shuttle, alive: true };
-    t._emit = () => {
+    const t = { pts: [], rate: 0, attached: shuttle, alive: true, heat: 0, fire: [], lastX: null, lastY: null };
+    t._emit = (dt) => {
       const s = t.attached;
-      if (s) t.pts.push({ x: s.x + G.LAYER_DX, y: s.y, a: Math.min(1, t.rate), r: s.rotation });
+      if (s) t.pts.push({ x: s.x + G.LAYER_DX, y: s.y, a: Math.min(1, t.rate), r: s.rotation, h: t.heat });
       for (const p of t.pts) p.a -= 0.06;
       while (t.pts.length && t.pts[0].a <= 0) t.pts.shift();
+      this.burn(t, s, dt);
     };
     t._follow = () => {};
     t.detach = () => {
@@ -849,7 +850,58 @@ class FX {
     this.trails.push(t);
     return t;
   }
+  // Fire behind fast shots. Heat follows the shuttle's speed above FIRE_SPEED and cools off
+  // over a moment. The particles live inside the trail emitter rather than in the shared
+  // update list, so the effect cannot change the order the original engine updates things in.
+  burn(t, s, dt) {
+    if (s) {
+      const k = Math.max(0, Math.min(1, (s.speed - FIRE_SPEED) / (FIRE_FULL - FIRE_SPEED)));
+      const cold = t.heat < 0.05;
+      t.heat = Math.max(t.heat - FIRE_COOL * dt, k);
+      if (cold && t.heat > 0.3) SFX.play('ignite', t.heat);
+      const x = s.x + G.LAYER_DX, y = s.y;
+      if (t.heat > 0.02) {
+        // spread new particles along the path flown this frame (fast shots cover ~30 px a frame)
+        const px = t.lastX === null ? x : t.lastX, py = t.lastY === null ? y : t.lastY;
+        const n = Math.floor(t.heat * 13 + Math.random());
+        for (let i = 0; i < n; i++) {
+          const u = Math.random();
+          t.fire.push({
+            x: px + (x - px) * u + (Math.random() - 0.5) * 4,
+            y: py + (y - py) * u + (Math.random() - 0.5) * 4,
+            vx: -s.dx * 0.06 + (Math.random() - 0.5) * 50,
+            vy: -s.dy * 0.06 + (Math.random() - 0.5) * 50 - 30,
+            age: 0,
+            life: 0.18 + Math.random() * 0.26 * (0.6 + t.heat),
+            size: 3.5 + Math.random() * 5 * (0.6 + t.heat),
+            smoke: Math.random() < 0.18,
+          });
+        }
+      }
+      t.lastX = x;
+      t.lastY = y;
+    } else {
+      t.heat = Math.max(0, t.heat - FIRE_COOL * dt);
+    }
+    if (!t.fire.length) return;
+    const drag = Math.pow(0.15, dt);
+    for (const p of t.fire) {
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= drag;
+      p.vy = p.vy * drag - 90 * dt; // hot air rises
+      if (p.y > G.GROUND - 1) p.y = G.GROUND - 1;
+    }
+    if (t.fire.some((p) => p.age >= p.life)) t.fire = t.fire.filter((p) => p.age < p.life);
+  }
 }
+
+// Shuttle fire: starts above FIRE_SPEED px/s, full blaze at FIRE_FULL. Normal full-power hits
+// (~1550) and serves stay clean; late-contact smashes (up to ~2100) catch fire.
+const FIRE_SPEED = 1620;
+const FIRE_FULL = 2000;
+const FIRE_COOL = 1.4; // heat lost per second once the shot slows down
 
 window.Shuttle = Shuttle;
 window.Player = Player;

@@ -242,6 +242,16 @@ const R = (() => {
     ctx.beginPath();
     ctx.ellipse(x, 401, 6 * k, 1.8 * k, 0, 0, Math.PI * 2);
     ctx.fill();
+    // a burning shuttle glows
+    const heat = s.trail ? s.trail.heat : 0;
+    if (heat > 0.02) {
+      const r = 10 + 12 * heat;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(1, heat * 1.2);
+      ctx.drawImage(fireSprite('glow'), x - r, y - r, r * 2, r * 2);
+      ctx.restore();
+    }
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate((s.rotation * Math.PI) / 180);
@@ -279,16 +289,63 @@ const R = (() => {
 
   function trail(ctx, t) {
     const pts = t.pts;
-    if (pts.length < 2) return;
-    ctx.lineCap = 'round';
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
-      const al = Math.max(0, Math.min(a.a, b.a)) * 0.55;
-      if (al <= 0.01) continue;
-      ctx.strokeStyle = `rgba(255,255,255,${al})`;
-      ctx.lineWidth = 1 + 3 * al;
-      line(ctx, a.x, a.y, b.x, b.y);
+    if (pts.length >= 2) {
+      ctx.lineCap = 'round';
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const al = Math.max(0, Math.min(a.a, b.a)) * 0.55;
+        if (al <= 0.01) continue;
+        const h = Math.min(1, b.h || 0); // hot segments run white -> orange
+        ctx.strokeStyle = `rgba(255,${Math.round(255 - 110 * h)},${Math.round(255 - 215 * h)},${al})`;
+        ctx.lineWidth = 1 + 3 * al;
+        line(ctx, a.x, a.y, b.x, b.y);
+      }
     }
+    if (t.fire.length) fire(ctx, t.fire);
+  }
+
+  // soft round sprites for fire, drawn once and tinted per stage of a particle's life
+  const fireSprites = {};
+  function fireSprite(kind) {
+    if (fireSprites[kind]) return fireSprites[kind];
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    const stops = {
+      core: ['rgba(255,255,235,1)', 'rgba(255,225,120,0.85)', 'rgba(255,170,40,0)'],
+      flame: ['rgba(255,200,80,1)', 'rgba(255,120,20,0.7)', 'rgba(230,60,0,0)'],
+      ember: ['rgba(255,110,30,0.9)', 'rgba(200,40,10,0.5)', 'rgba(120,10,0,0)'],
+      smoke: ['rgba(70,64,60,0.55)', 'rgba(55,50,48,0.3)', 'rgba(40,38,36,0)'],
+      glow: ['rgba(255,230,150,0.9)', 'rgba(255,140,30,0.45)', 'rgba(255,80,0,0)'],
+    }[kind];
+    grad.addColorStop(0, stops[0]);
+    grad.addColorStop(0.45, stops[1]);
+    grad.addColorStop(1, stops[2]);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    return (fireSprites[kind] = c);
+  }
+  function fire(ctx, parts) {
+    ctx.save();
+    // smoke first, normal blending
+    for (const p of parts) {
+      if (!p.smoke) continue;
+      const f = p.age / p.life;
+      const r = p.size * (1.2 + f * 1.6);
+      ctx.globalAlpha = (1 - f) * 0.7;
+      ctx.drawImage(fireSprite('smoke'), p.x - r, p.y - r, r * 2, r * 2);
+    }
+    // flames add light: white-yellow when fresh, orange, then dying red embers
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of parts) {
+      if (p.smoke) continue;
+      const f = p.age / p.life;
+      const r = p.size * (1 - f * 0.55);
+      ctx.globalAlpha = Math.max(0, 1 - f * f) * (f < 0.12 ? 0.8 : 1);
+      ctx.drawImage(fireSprite(f < 0.12 ? 'core' : f < 0.5 ? 'flame' : 'ember'), p.x - r, p.y - r, r * 2, r * 2);
+    }
+    ctx.restore();
   }
 
   /* ------------------------------------------------------------ player figure */
@@ -378,7 +435,8 @@ const R = (() => {
     const dx = cx - gx, dy = cy - gy;
     const len = Math.hypot(dx, dy);
     const ux = dx / len, uy = dy / len;
-    const a = len * 0.36, b = len * 0.28;
+    // head seen mostly edge-on: a narrow oval rather than the full face
+    const a = len * 0.36, b = len * 0.11;
     const nx = cx - ux * a, ny = cy - uy * a;
     // shaft
     ctx.save();
@@ -401,9 +459,9 @@ const R = (() => {
     ctx.strokeStyle = 'rgba(240,240,240,0.7)';
     ctx.lineWidth = 0.6;
     for (let i = -a; i <= a; i += 3.2) line(ctx, i, -b, i, b);
-    for (let i = -b; i <= b; i += 3.2) line(ctx, -a, i, a, i);
+    for (let i = -b + b / 3; i < b; i += b / 3) line(ctx, -a, i, a, i);
     ctx.restore();
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.4;
     ctx.strokeStyle = color;
     ctx.beginPath();
     ctx.ellipse(0, 0, a, b, 0, 0, Math.PI * 2);
@@ -1016,7 +1074,7 @@ const R = (() => {
     if (s) {
       left.push([`shuttle x ${s.x.toFixed(2)}  y ${s.y.toFixed(2)}`, '#ffe14d']);
       left.push([`  dx ${s.dx.toFixed(1)}  dy ${s.dy.toFixed(1)}  v ${s.speed.toFixed(0)}  dir ${s.dir.toFixed(1)}°`, '#ffe14d']);
-      left.push([`  landX ${s.landX.toFixed(1)}`, '#ffe14d']);
+      left.push([`  landX ${s.landX.toFixed(1)}  heat ${(s.trail ? s.trail.heat : 0).toFixed(2)}`, '#ffe14d']);
     } else {
       left.push(['shuttle -', '#ffe14d']);
     }

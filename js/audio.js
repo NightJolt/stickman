@@ -118,6 +118,15 @@ const SFX = (() => {
       tone(t, 'sine', 140, 38, 0.3, 0.6);
       noise(t, 0.15, 'lowpass', 500, 0.7, 0.3);
     },
+    // a fast shot catching fire: rushing flame plus a few crackles
+    ignite(heat = 1) {
+      const t = ctx.currentTime;
+      const k = Math.min(1, heat);
+      const f = noise(t, 0.38, 'bandpass', 320, 0.9, 0.24 * k, 0.02);
+      f.frequency.exponentialRampToValueAtTime(1500, t + 0.3);
+      noise(t, 0.3, 'lowpass', 700, 0.7, 0.14 * k, 0.01);
+      for (let i = 0; i < 5; i++) noise(t + Math.random() * 0.3, 0.015, 'highpass', 3500, 0.7, 0.07 * k, 0.002);
+    },
     click() {
       const t = ctx.currentTime;
       tone(t, 'square', 880, 660, 0.04, 0.08);
