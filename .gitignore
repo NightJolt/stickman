@@ -1,0 +1,27 @@
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+desktop.ini
+
+# Original Flash game (local reference only, not part of this project)
+*.swf
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Tooling output
+node_modules/
+.cache/
+dist/
+coverage/
+*.log
+
+# Local environment
+.env
+.env.*
