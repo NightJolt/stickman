@@ -36,3 +36,10 @@ The art, characters, names, text, sound effects and music are original to this p
 - `js/characters.js`: roster, ladders, unlock tiers
 - `js/music.js`: music engine (synth voices, reverb, delay, ducking) and the two tracks, written as note data
 - `js/render.js`, `js/ui.js`, `js/audio.js`, `js/main.js`: drawing, screens, sound effects, boot
+
+## Hosting
+
+Live at https://stickman.urbancare.ge, on the urbancare VM. Every push to `main` is published
+within about a minute: the VM's `watch-deploy.sh` syncs `~/stickman` and runs `ops/deploy.sh`,
+which copies the game files into a new release and switches nginx to it
+(`ops/nginx/stickman.conf`). There is no build step there either.
