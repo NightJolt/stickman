@@ -111,9 +111,14 @@ else
   fi
 fi
 
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 --resolve stickman.urbancare.ge:443:127.0.0.1 \
-  -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
-  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' https://stickman.urbancare.ge/ws || true)
+# a reload hands over to new nginx workers in the background, so give it a few tries
+for try in 1 2 3 4 5; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 --resolve stickman.urbancare.ge:443:127.0.0.1 \
+    -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' https://stickman.urbancare.ge/ws || true)
+  [ "$code" = 101 ] && break
+  sleep 1
+done
 if [ "$code" = 101 ]; then
   echo "Done: wss://stickman.urbancare.ge/ws answers. Online 1v1 is live."
 else
