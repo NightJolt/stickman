@@ -30,7 +30,7 @@ class Shuttle {
     this.dir = dir;
     this.rotation = dir;
     m.fx.spark(this.x, this.y, dir, (power / 1350) * 0.4);
-    SFX.play('hit', power);
+    m.sfx('hit', power);
     G.applyDir(this);
     this.landX = Shuttle.predictLanding(this.x, this.y, this.dx, this.dy);
   }
@@ -265,6 +265,7 @@ class Player {
     if (this.serving && this.scaleX > 0 && this.x > lineL) this.x = lineL;
     if (this.serving && this.scaleX < 0 && this.x < lineR) this.x = lineR;
     if (this.cpu) {
+      // right-hand-side x; think() mirrors it for a computer player on the left
       if (G.chance(33)) {
         this.serveTargetX = G.NET_X + G.SERVE_GAP + 20;
         this.jumpServe = !G.chance(this.skill);
@@ -307,7 +308,7 @@ class Player {
     const m = this.m;
     const s = m.shuttle;
     this.power = power;
-    SFX.play('whoosh');
+    m.sfx('whoosh');
     this.swinging = true;
     let inReach = false;
     if (this.dy > -100 && this.inAir) this.underShift += 20;
@@ -331,7 +332,7 @@ class Player {
     if (this.kind === 'hover') {
       m.shuttle.hit(1350 * 1.1, 40 * G.sign(this.scaleX), 'pop');
       m.lastHitter = this;
-      SFX.play('pop');
+      m.sfx('pop');
       return;
     }
     const power = 1350 * 1.3 * G.rand(0.93, 1.03) * POWER_TRIM;
@@ -474,35 +475,40 @@ class Player {
     }
   }
 
-  /* ---- computer opponent (always plays the right-hand side) ---- */
+  /* ---- computer player ---- */
+  // The original only ever ran it on the right-hand side. On the left (the title-screen demo) it
+  // reads the court mirrored, so x values below (target, serveTargetX, lastShuttleX) are
+  // right-hand-side coordinates; on the right the mirror is the identity.
   think() {
     const m = this.m;
     const s = m.shuttle;
     const mid = G.W / 2;
+    const X = this.scaleX > 0 ? (v) => G.W - v : (v) => v;
+    const x = X(this.x), sx = s && X(s.x), landX = s && X(s.landX);
     let target;
     if (this.serving) {
       target = this.serveTargetX;
-    } else if (this.goHome || s === null || m.lastHitter === this || s.x < mid) {
+    } else if (this.goHome || s === null || m.lastHitter === this || sx < mid) {
       target = 450;
-    } else if (s.landX > 450 && s.x < 340) {
+    } else if (landX > 450 && sx < 340) {
       target = 450;
     } else {
       let off;
       if (this.rollA < this.skill) {
-        off = s.landX < mid + 240 ? 100 - (s.landX - mid) / 11 : 20;
+        off = landX < mid + 240 ? 100 - (landX - mid) / 11 : 20;
       } else {
         off = 20;
-        if (this.rollB < 50 && s.landX < mid + 240) off = 70 - (s.landX - mid) / 11;
+        if (this.rollB < 50 && landX < mid + 240) off = 70 - (landX - mid) / 11;
       }
-      if (m.p1Id === 'jo' && s.landX > mid + 220) off = 20;
-      if (Math.abs(this.lastShuttleX - s.x) > 8 || this.rollA < this.skill || this.rollB < (100 - this.skill) / 2) {
-        target = s.x + off;
-        this.lastShuttleX = s.x;
+      if ((this.scaleX > 0 ? m.p2Id : m.p1Id) === 'jo' && landX > mid + 220) off = 20;
+      if (Math.abs(this.lastShuttleX - sx) > 8 || this.rollA < this.skill || this.rollB < (100 - this.skill) / 2) {
+        target = sx + off;
+        this.lastShuttleX = sx;
       } else {
         target = this.lastShuttleX + off;
       }
     }
-    this.dbgTarget = target;
+    this.dbgTarget = X(target);
 
     if (!m.rallyLive && !this.rallyOverSeen) {
       this.rallyOverSeen = true;
@@ -516,13 +522,13 @@ class Player {
     }
 
     const face = G.sign(this.scaleX);
-    if (Math.abs(target - this.x) < 10) {
+    if (Math.abs(target - x) < 10) {
       this.dx = 0;
       this.state = 'normal';
-    } else if (target - this.x < 0) {
+    } else if (target - x < 0) {
       this.dx = RUN_SPEED * face * this.speedMul;
       this.state = 'forward';
-    } else if (target - this.x > 0) {
+    } else if (target - x > 0) {
       this.dx = -RUN_SPEED * face * this.speedMul;
       this.state = 'backward';
     } else {
@@ -530,14 +536,14 @@ class Player {
       this.state = 'normal';
     }
 
-    if (s && Math.abs(s.y - 190) < 10 && m.lastHitter !== this && this.x - 60 - s.x < 20 &&
+    if (s && Math.abs(s.y - 190) < 10 && m.lastHitter !== this && x - 60 - sx < 20 &&
         this.rollB < (100 - this.skill) / 2 && this.rollA >= this.skill && !this.inAir) {
       this.jump();
     }
 
     if (this.inAir) this.cpuShift -= 20;
     if (G.clock - this.lastCpuSwing > 500 && m.rallyLive && s && this.polyHit(this.rig.cpuHit, this.cpuShift, s.x, s.y) &&
-        m.lastHitter !== this && s.x > m.netClipX) {
+        m.lastHitter !== this && sx > X(m.netClipX)) {
       this.lastCpuSwing = G.clock;
       this.swing();
       this.rollA = G.rand(0, 100);
@@ -545,7 +551,7 @@ class Player {
     }
     if (this.inAir) this.cpuShift += 20;
 
-    if (this.serving && Math.abs(this.serveTargetX - this.x) < 10 && !this.serveTriggered) {
+    if (this.serving && Math.abs(this.serveTargetX - x) < 10 && !this.serveTriggered) {
       this.serveTriggered = true;
       if (this.jumpServe) {
         G.setTimeout(() => { if (!this.inAir) this.jump(); }, 200);
@@ -567,9 +573,13 @@ class Player {
 /*                                  Match                                   */
 /* ======================================================================== */
 class Match {
-  // mode: 'solo' (tournament), 'versus' (two players) or 'training' (against the shot machine)
-  constructor(mode, p1Id, p2Id, hooks) {
+  // mode: 'solo' (tournament), 'cpu' (1v1 against a computer player of your choice), 'versus'
+  // (two players), 'training' (against the shot machine) or 'demo' (two computer players rallying
+  // behind the title screen, silent and endless). `level` is the 1v1 opponent's CPU_LEVELS index.
+  constructor(mode, p1Id, p2Id, hooks, level = 1) {
     this.mode = mode;
+    this.level = level;
+    this.silent = mode === 'demo';
     this.p1Id = p1Id;
     this.p2Id = p2Id || null;
     this.hooks = hooks;          // UI callbacks
@@ -602,13 +612,25 @@ class Match {
     G.pauseAllowed = true;
     G.paused = false;
     G.lastT = G.clock;
-    this.setupPlayer1();
+    if (this.mode === 'demo') this.p1 = this.cpuPlayer(this.p1Id, 150, 1, G.pick(ROUND_AI));
+    else this.setupPlayer1();
     if (this.mode === 'versus') {
       this.setupPlayer2();
       this.p1.controls = 1;
       this.p2.controls = 2;
       this.newRally();
       this.banner();
+    } else if (this.mode === 'cpu') {
+      this.p2 = this.cpuPlayer(this.p2Id, 500, -1, ROUND_AI[CPU_LEVELS[this.level].row]);
+      this.greet();
+      this.newRally();
+      this.banner();
+    } else if (this.mode === 'demo') {
+      this.p2 = this.cpuPlayer(this.p2Id, 500, -1, G.pick(ROUND_AI));
+      this.server = G.chance(50) ? 1 : 2;
+      G.pauseAllowed = false;
+      this.greet();
+      this.newRally();
     } else if (this.machine) {
       this.banner();
     } else {
@@ -626,19 +648,29 @@ class Match {
     this.p2 = new Player(this, this.p2Id, 500, G.GROUND, -1);
   }
 
-  setupOpponent() {
-    if (this.p2) this.p2.dispose();
-    this.p2Id = ladderFor(this.p1Id)[this.round - 1];
-    let [speed, jump, power, skill] = ROUND_AI[this.round - 1];
+  // a computer player tuned by a ROUND_AI row
+  cpuPlayer(id, x, facing, [speed, jump, power, skill]) {
     if (this.p1Id === 'jo') speed *= 1.1;
-    const p = new Player(this, this.p2Id, 500, G.GROUND, -1);
+    const p = new Player(this, id, x, G.GROUND, facing);
     p.speedMul = speed;
     p.jumpMul = jump;
     p.powerMul = power;
     p.setSkill(skill);
     p.overheadChance = skill;
     p.cpu = true;
-    this.p2 = p;
+    return p;
+  }
+
+  setupOpponent() {
+    if (this.p2) this.p2.dispose();
+    this.p2Id = ladderFor(this.p1Id)[this.round - 1];
+    this.p2 = this.cpuPlayer(this.p2Id, 500, -1, ROUND_AI[this.round - 1]);
+    this.greet();
+  }
+
+  // the opponent's opening line, a second in
+  greet() {
+    const p = this.p2;
     const special = greetingFor(this.p2Id, this.p1Id);
     const line = special || G.pick(CHARS[this.p2Id].lines);
     G.setTimeout(() => { if (this.p2 === p) this.say(p, line); }, 1000);
@@ -662,7 +694,7 @@ class Match {
   resetLevel() {
     G.pauseAllowed = true;
     this.flawless = true;
-    if (this.mode === 'versus') {
+    if (this.mode !== 'solo') {
       this.over = false;
       this.score1 = this.score2 = 0;
       this.celebrating = false;
@@ -674,10 +706,16 @@ class Match {
     }
   }
 
+  // what is being played: on the opening banner and under the score
+  title() {
+    if (this.mode === 'versus') return 'Exhibition';
+    if (this.mode === 'cpu') return '1v1  ·  ' + CPU_LEVELS[this.level].name;
+    return ROUND_NAMES[this.round - 1] || '';
+  }
+
   banner() {
     if (this.machine) return this.fx.banner('Training', CHARS[this.p1Id].name, 'Shot Machine');
-    const title = this.mode === 'versus' ? 'Exhibition' : ROUND_NAMES[this.round - 1];
-    this.fx.banner(title, CHARS[this.p1Id].name, CHARS[this.p2Id].name);
+    this.fx.banner(this.title(), CHARS[this.p1Id].name, CHARS[this.p2Id].name);
   }
 
   newRally() {
@@ -698,7 +736,7 @@ class Match {
   point(side) {
     if (!this.rallyLive) return;
     if (this.machine) return this.machine.landed(side);
-    SFX.play('ding');
+    this.sfx('ding');
     this.rallyLive = false;
     if (side === 1) {
       this.score1++;
@@ -709,12 +747,14 @@ class Match {
       this.flawless = false;
     }
     const WIN = 7;
-    if (this.mode === 'versus') {
-      if (this.score1 >= WIN || this.score2 >= WIN) {
+    if (this.mode !== 'solo') { // a single match (the title-screen demo never ends)
+      if (this.mode !== 'demo' && (this.score1 >= WIN || this.score2 >= WIN)) {
+        const p1Won = this.score1 > this.score2;
         this.over = true;
-        this.celebrating = true;
-        SFX.play('cheer');
-        this.status = this.score1 > this.score2 ? 'P1 Wins' : 'P2 Wins';
+        this.celebrating = this.mode !== 'cpu' || p1Won;
+        this.sfx(this.celebrating ? 'cheer' : 'sigh');
+        if (this.mode === 'cpu') this.status = p1Won ? 'You Win' : 'Good Try';
+        else this.status = p1Won ? 'P1 Wins' : 'P2 Wins';
         this.hooks.matchOver(this, 'versus');
       } else {
         G.setTimeout(() => this.newRally(), 1500);
@@ -728,12 +768,12 @@ class Match {
       this.over = true;
       this.status = 'You Win';
       this.celebrating = true;
-      SFX.play('cheer');
+      this.sfx('cheer');
     } else if (this.score2 >= WIN) {
       if (!this.over) G.setTimeout(() => { G.pauseAllowed = false; this.hooks.matchOver(this, 'lost'); }, 1000);
       this.over = true;
       this.status = 'Good Try';
-      SFX.play('sigh');
+      this.sfx('sigh');
     } else {
       G.setTimeout(() => this.newRally(), 1500);
     }
@@ -746,6 +786,11 @@ class Match {
     if (this.machine) this.machine.update(dt);
     if (!this.over) this.status = this.score1 + ' - ' + this.score2;
     if (this.celebrating && G.chance(70)) this.fx.confetti();
+    if (this.mode === 'demo') this.fx.prune();
+  }
+
+  sfx(name, arg) {
+    if (!this.silent) SFX.play(name, arg);
   }
 
   // mouse press during play (mouse flyers swing on click)
@@ -881,7 +926,7 @@ class ShotMachine {
       this.returned++;
       this.streak++;
       this.best = Math.max(this.best, this.streak);
-      SFX.play('ding');
+      m.sfx('ding');
       this.pop(x, this.streak >= 3 ? this.streak + ' in a row!' : 'Nice!', '#7bed9f');
     } else if (side === 2) {
       this.missed++;
@@ -1014,6 +1059,16 @@ class FX {
     this.trails.push(t);
     return t;
   }
+  // The original never takes a finished trail's emitter off the update list (a match is too short
+  // for that to matter). The endless title demo would pile them up, so it drops faded ones. It runs
+  // from the match's own update, which is first in the list, so nothing later gets skipped.
+  prune() {
+    this.trails = this.trails.filter((t) => {
+      if (t.attached || t.pts.length || t.fire.length) return true;
+      G.removeUpdate(t._emit);
+      return false;
+    });
+  }
   // Fire behind fast shots. Heat follows the shuttle's speed above FIRE_SPEED and cools off
   // over a moment. The particles live inside the trail emitter rather than in the shared
   // update list, so the effect cannot change the order the original engine updates things in.
@@ -1022,7 +1077,7 @@ class FX {
       const k = Math.max(0, Math.min(1, (s.speed - FIRE_SPEED) / (FIRE_FULL - FIRE_SPEED)));
       const cold = t.heat < 0.05;
       t.heat = Math.max(t.heat - FIRE_COOL * dt, k);
-      if (cold && t.heat > 0.3) SFX.play('ignite', t.heat);
+      if (cold && t.heat > 0.3) this.m.sfx('ignite', t.heat);
       const x = s.x + G.LAYER_DX, y = s.y;
       if (t.heat > 0.02) {
         // spread new particles along the path flown this frame (fast shots cover ~30 px a frame)

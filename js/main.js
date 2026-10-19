@@ -47,7 +47,7 @@
   window.addEventListener('keydown', (e) => {
     SFX.unlock();
     const code = G.codeFromEvent(e);
-    if ([32, 37, 38, 39, 40, 8].includes(code)) e.preventDefault();
+    if ([32, 37, 38, 39, 40, 8, 9].includes(code)) e.preventDefault();
     if (!G.isDown(code)) G.keys.push(code);
     if (!e.repeat) UI.key(code);
   });

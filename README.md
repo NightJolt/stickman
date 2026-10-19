@@ -3,9 +3,22 @@
 An HTML5 stick-figure badminton game. Its gameplay, physics and AI were rebuilt from a
 reverse-engineered Flash game. No build step, no dependencies: open `index.html` in a browser.
 
+## Modes
+
+- **Single Player**: Tournament (five rounds against a fixed ladder), 1v1 and Training.
+- **Multiplayer**: Local 1v1, two players on one keyboard.
+
+1v1 is new to this remake: pick your player, then any computer opponent (the flyers excepted,
+since the computer can't steer one) and a difficulty. Easy, Normal and Hard play like the
+tournament's Round 1, Quarter-Finals and Final Match. Tab cycles the difficulty, and the choice is remembered.
+
+Behind the title menu two computer players with random characters play silently for as long as
+the menu is up, with a new pair each time you return to it. The original's computer only ever
+played the right-hand side; the demo's left-hand player runs the same logic on a mirrored court.
+
 ## Controls
 
-| | Tournament | 2 Players: P1 | 2 Players: P2 |
+| | Single player | Local 1v1: P1 | Local 1v1: P2 |
 |---|---|---|---|
 | Move | ← → / A D | A D | ← → |
 | Jump | ↑ / W | W | ↑ |
@@ -13,7 +26,7 @@ reverse-engineered Flash game. No build step, no dependencies: open `index.html`
 
 Jetpack Jo and Rocket Rae fly with the mouse and swing on click.
 
-Training (from the title screen) puts you against a shot machine that keeps feeding clears, lobs, drops, drives and smashes, and counts your returns, misses and best streak. T toggles the shot trail: the shuttle's predicted flight and landing spot, the same prediction the debug overlay draws. The machine is new to this remake.
+Training puts you against a shot machine that keeps feeding clears, lobs, drops, drives and smashes, and counts your returns, misses and best streak. T toggles the shot trail: the shuttle's predicted flight and landing spot, the same prediction the debug overlay draws. The machine is new to this remake.
 P pauses (in the tournament the pause screen shows the bracket), Esc returns to the menu, M toggles sound. Add `?unlockall` to the URL to open every character.
 
 ` (backtick) toggles the debug overlay: racket boxes (filled while the swing can still hit), the reach and computer-swing polygons, net boxes, court limits, the predicted shuttle path and the AI's landing estimate and target, plus live numbers for the shuttle and both players. The setting is remembered between visits.

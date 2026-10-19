@@ -835,7 +835,7 @@ const R = (() => {
   }
 
   function hud(ctx, m) {
-    const label = m.mode === 'versus' ? 'Exhibition' : ROUND_NAMES[m.round - 1] || '';
+    const label = m.title();
     ctx.save();
     ctx.fillStyle = 'rgba(10,14,28,0.72)';
     rr(ctx, 248, 8, 144, 40, 10);
@@ -1035,7 +1035,7 @@ const R = (() => {
     if (m.machine) {
       pops(ctx, m.machine);
       trainingHud(ctx, m);
-    } else hud(ctx, m);
+    } else if (m.mode !== 'demo') hud(ctx, m);
     banner(ctx, m.fx);
     if (G.debug) debug(ctx, m);
   }

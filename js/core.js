@@ -146,7 +146,7 @@ G.Clip = class Clip {
 };
 
 /* ---------- input ---------- */
-G.KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, SPACE: 32, ENTER: 13, ESC: 27, W: 87, A: 65, S: 83, D: 68, P: 80, M: 77, T: 84, BACKQUOTE: 192 };
+G.KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, SPACE: 32, ENTER: 13, ESC: 27, TAB: 9, W: 87, A: 65, S: 83, D: 68, P: 80, M: 77, T: 84, BACKQUOTE: 192 };
 G.keys = [];
 G.isDown = (code) => G.keys.indexOf(code) !== -1;
 G.mouse = { x: NaN, y: NaN, inside: false };

@@ -102,6 +102,12 @@ const ROUND_AI = [
   [1.1, 1, 1, 75],
   [1.15, 1, 1, 65],
 ];
+// 1v1 against the computer: each level plays like one tournament round
+const CPU_LEVELS = [
+  { name: 'Easy', row: 0 },
+  { name: 'Normal', row: 2 },
+  { name: 'Hard', row: 4 },
+];
 
 // Special greeting lines (opponent -> player) shown instead of a random line
 function greetingFor(oppId, playerId) {
@@ -123,4 +129,5 @@ window.LADDER = LADDER;
 window.ladderFor = ladderFor;
 window.ROUND_NAMES = ROUND_NAMES;
 window.ROUND_AI = ROUND_AI;
+window.CPU_LEVELS = CPU_LEVELS;
 window.greetingFor = greetingFor;

@@ -48,6 +48,14 @@ const UI = (() => {
     });
   }
   function focusable(list) { return list.some((b) => b.kbd); }
+  // Up/Down move the focus through the screen's keyboard buttons, Enter/Space presses it
+  function navigate(code) {
+    const kb = (screen.buttons || []).filter((b) => b.kbd);
+    if (!kb.length) return;
+    if (code === G.KEY.DOWN || code === G.KEY.S) focus = (focus + 1) % kb.length;
+    else if (code === G.KEY.UP || code === G.KEY.W) focus = (focus + kb.length - 1) % kb.length;
+    else if (code === G.KEY.ENTER || code === G.KEY.SPACE) kb[focus].onClick();
+  }
 
   /* ---------------- transitions ---------------- */
   function go(next) {
@@ -55,43 +63,68 @@ const UI = (() => {
     fade = { a: 0, dir: 1, then: next };
   }
   function show(next) {
+    if (screen && screen.leave) screen.leave();
     screen = next;
     focus = 0;
     if (screen.enter) screen.enter();
   }
 
   /* ======================================================== TITLE */
-  function titleScreen() {
+  // menu: 'main', 'single' or 'multi'; `at` is the button to focus. Behind the menu two computer
+  // players with random characters rally silently for as long as the title is up.
+  // An item opens a screen or returns [menu, focus]; `last` always sits in the bottom slot.
+  const MENUS = {
+    main: { caption: 'a stick figure badminton showdown', items: [
+      ['Single Player', () => ['single']],
+      ['Multiplayer', () => ['multi']],
+    ], last: ['How to Play', () => howTo()] },
+    single: { caption: 'Single Player', items: [
+      ['Tournament', () => select1P()],
+      ['1v1', () => select1P(null, 'cpu')],
+      ['Training', () => select1P(null, 'training')],
+    ], last: ['Back', () => ['main', 0]] },
+    multi: { caption: 'Multiplayer', items: [
+      ['Local 1v1', () => select2P()],
+    ], last: ['Back', () => ['main', 1]] },
+  };
+  function titleScreen(menu = 'main', at = 0) {
+    let demo = null;
+    function setMenu(name, focusAt = 0) {
+      const M = MENUS[name];
+      menu = name;
+      focus = focusAt;
+      const ys = [212, 262, 306];
+      const press = (open) => () => {
+        const next = open();
+        if (Array.isArray(next)) setMenu(...next);
+        else go(next);
+      };
+      s.buttons = M.items.map(([label, open], i) => btn(label, 230, ys[i], 180, i ? 38 : 42, press(open), { primary: i === 0, kbd: true }));
+      s.buttons.push(btn(M.last[0], 230, 350, 180, 38, press(M.last[1]), { kbd: true }));
+      s.buttons.push(btn(() => (SFX.muted ? 'Sound: off' : 'Sound: on'), 540, 386, 86, 28, () => SFX.toggleMute(), { size: 12 }));
+    }
     const s = {
       enter() {
         disposeMatch();
         SFX.music('title');
-        G.pauseAllowed = false;
-        s.buttons = [
-          btn('Tournament', 230, 212, 180, 42, () => go(select1P()), { primary: true, kbd: true }),
-          btn('Training', 230, 262, 180, 38, () => go(select1P(null, true)), { kbd: true }),
-          btn('2 Players', 230, 306, 180, 38, () => go(select2P()), { kbd: true }),
-          btn('How to Play', 230, 350, 180, 38, () => go(howTo()), { kbd: true }),
-          btn(() => (SFX.muted ? 'Sound: off' : 'Sound: on'), 540, 386, 86, 28, () => SFX.toggleMute(), { size: 12 }),
-        ];
+        const a = G.pick(SELECT_2P);
+        demo = new Match('demo', a, G.pick(SELECT_2P.filter((id) => id !== a)), {});
+        demo.start();
+        setMenu(menu, at);
+      },
+      leave() {
+        if (demo) demo.dispose();
+        demo = null;
+      },
+      key(code) {
+        if (code === G.KEY.ESC && menu !== 'main') setMenu(...MENUS[menu].last[1]());
+        else navigate(code);
       },
       draw(ctx, scale) {
-        R.background(ctx, scale);
+        if (demo) R.scene(ctx, demo, scale);
+        else R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.45)';
         ctx.fillRect(0, 0, G.W, G.H);
-        // rally between two figures
-        const ph = (time % 2.4) / 2.4;
-        const fwd = Math.floor(time / 2.4) % 2 === 0;
-        const u = fwd ? ph : 1 - ph;
-        const sx = 120 + u * 400, sy = 300 - Math.sin(u * Math.PI) * 190;
-        R.figure(ctx, 'stan', 110, 400, 1.6, { t: time, frame: 1 + Math.floor(((fwd ? ph : 1 - ph) < 0.12 ? (fwd ? ph : 1 - ph) * 8 : 0) * 26) });
-        R.figure(ctx, 'zara', 530, 400, 1.6, { t: time, flip: true, frame: 1 + Math.floor((u > 0.88 ? (u - 0.88) * 8 : 0) * 26) });
-        ctx.save();
-        ctx.translate(sx, sy);
-        ctx.rotate((fwd ? 1 : -1) * (Math.PI / 2) + (fwd ? 1 : -1) * (u - 0.5) * 2.2);
-        ctx.scale(1.4, 1.4);
-        R.drawShuttleShape(ctx);
-        ctx.restore();
         // logo
         ctx.save();
         ctx.translate(320, 110);
@@ -99,9 +132,8 @@ const UI = (() => {
         text(ctx, 'SHUTTLE', 0, -26, 58, '#ffd166', 'center', '900', '#1b1b24', 10);
         text(ctx, 'STICKS', 0, 32, 58, '#ffffff', 'center', '900', '#1b1b24', 10);
         ctx.restore();
-        text(ctx, 'a stick figure badminton showdown', 320, 192, 14, '#c9d6ee', 'center', 'bold');
+        text(ctx, MENUS[menu].caption, 320, 192, 14, '#c9d6ee', 'center', 'bold');
         drawButtons(ctx, s.buttons);
-        text(ctx, 'Arrow keys + Enter or mouse', 14, 404, 11, 'rgba(255,255,255,0.5)', 'left', 'normal');
       },
     };
     return s;
@@ -111,7 +143,7 @@ const UI = (() => {
   function howTo() {
     const s = {
       enter() {
-        s.buttons = [btn('Back', 250, 372, 140, 38, () => go(titleScreen()), { primary: true, kbd: true })];
+        s.buttons = [btn('Back', 250, 372, 140, 38, () => go(titleScreen('main', 2)), { primary: true, kbd: true })];
       },
       draw(ctx, scale) {
         R.background(ctx, scale);
@@ -141,18 +173,22 @@ const UI = (() => {
     return s;
   }
 
-  /* ======================================================== SELECT (tournament) */
-  function select1P(pick, training) {
+  /* ======================================================== SELECT (single player) */
+  // mode: 'solo' (tournament), 'cpu' (1v1, the opponent is picked next) or 'training'
+  const MODE_ITEM = { solo: 0, cpu: 1, training: 2 }; // its button in the Single Player menu
+  function select1P(pick, mode = 'solo') {
     const unlocked = unlockedSlots();
     let sel = Math.max(0, SELECT_1P.indexOf(pick));
     const tiles = SELECT_1P.map((id, i) => ({ id, i, x: 18 + (i % 6) * 70, y: 54 + Math.floor(i / 6) * 84, w: 64, h: 78, locked: !unlocked.includes(i) }));
     const choose = (i) => { if (!tiles[i].locked) { sel = i; SFX.play('click'); } };
-    const start = () => go(training ? briefing(SELECT_1P[sel], null, true) : bracketScreen(SELECT_1P[sel]));
+    const id0 = () => SELECT_1P[sel];
+    const start = () => go(mode === 'training' ? briefing(id0(), null, 'training') : mode === 'cpu' ? selectOpponent(id0()) : bracketScreen(id0()));
+    const back = () => go(titleScreen('single', MODE_ITEM[mode]));
     const s = {
       enter() {
         s.buttons = [
-          btn('Back', 440, 372, 80, 38, () => go(titleScreen())),
-          btn('Play!', 530, 372, 92, 38, start, { primary: true }),
+          btn('Back', 440, 372, 80, 38, back),
+          btn(mode === 'cpu' ? 'Next' : 'Play!', 530, 372, 92, 38, start, { primary: true }),
         ];
       },
       click(x, y) {
@@ -171,13 +207,13 @@ const UI = (() => {
         else if (code === K.LEFT || code === K.A) step(-1);
         else if (code === K.DOWN || code === K.UP || code === K.S || code === K.W) step(6);
         else if (code === K.ENTER || code === K.SPACE) start();
-        else if (code === K.ESC) go(titleScreen());
+        else if (code === K.ESC) back();
       },
       draw(ctx, scale) {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
         ctx.fillRect(0, 0, G.W, G.H);
-        text(ctx, training ? 'Training: pick a player' : 'Choose your player', 222, 30, 22, '#ffd166');
+        text(ctx, mode === 'training' ? 'Training: pick a player' : mode === 'cpu' ? '1v1: pick your player' : 'Choose your player', 222, 30, 22, '#ffd166');
         for (const t of tiles) {
           const on = t.i === sel;
           ctx.save();
@@ -278,10 +314,10 @@ const UI = (() => {
     ctx.stroke();
   }
 
-  function fitText(ctx, str, x, y, size, color, maxW) {
+  function fitText(ctx, str, x, y, size, color, maxW, align = 'left') {
     ctx.font = `bold ${size}px ${R.FONT}`;
     while (size > 8 && ctx.measureText(str).width > maxW) ctx.font = `bold ${(size -= 0.5)}px ${R.FONT}`;
-    text(ctx, str, x, y, size, color, 'left');
+    text(ctx, str, x, y, size, color, align);
     return ctx.measureText(str).width;
   }
 
@@ -440,7 +476,7 @@ const UI = (() => {
   }
 
   function bracketScreen(p1) {
-    const start = () => go(briefing(p1, null));
+    const start = () => go(briefing(p1, null, 'solo'));
     const back = () => go(select1P(p1));
     const s = {
       enter() {
@@ -475,9 +511,9 @@ const UI = (() => {
     const s = {
       enter() {
         s.buttons = [
-          btn('Back', 40, 372, 90, 38, () => go(titleScreen())),
+          btn('Back', 40, 372, 90, 38, () => go(titleScreen('multi'))),
           btn('Undo', 140, 372, 90, 38, () => { picks.pop(); }),
-          btn('Play!', 500, 372, 110, 38, () => { if (startable()) go(briefing(picks[0], picks[1])); }, { primary: true }),
+          btn('Play!', 500, 372, 110, 38, () => { if (startable()) go(briefing(picks[0], picks[1], 'versus')); }, { primary: true }),
         ];
       },
       click(x, y) {
@@ -488,9 +524,9 @@ const UI = (() => {
         if (code === K.RIGHT || code === K.D) cursor = (cursor + 1) % 10;
         else if (code === K.LEFT || code === K.A) cursor = (cursor + 9) % 10;
         else if (code === K.DOWN || code === K.UP || code === K.S || code === K.W) cursor = (cursor + 5) % 10;
-        else if (code === K.ENTER || code === K.SPACE) { if (startable()) go(briefing(picks[0], picks[1])); else choose(cursor); }
+        else if (code === K.ENTER || code === K.SPACE) { if (startable()) go(briefing(picks[0], picks[1], 'versus')); else choose(cursor); }
         else if (code === 8) picks.pop();
-        else if (code === K.ESC) go(titleScreen());
+        else if (code === K.ESC) go(titleScreen('multi'));
       },
       draw(ctx, scale) {
         R.background(ctx, scale);
@@ -534,11 +570,105 @@ const UI = (() => {
     return s;
   }
 
+  /* ======================================================== SELECT (1v1 opponent) */
+  const LEVEL_KEY = 'shuttlesticks.level';
+  function savedLevel() {
+    try {
+      const v = localStorage.getItem(LEVEL_KEY);
+      return v !== null && CPU_LEVELS[v] ? Number(v) : 1;
+    } catch (e) { return 1; }
+  }
+  // The computer can't fly a mouse flyer, so opponents come from the two-player roster, all of
+  // them open whatever is unlocked. Tab or the buttons set the difficulty, which is remembered.
+  function selectOpponent(p1, pick) {
+    let sel = Math.max(0, SELECT_2P.indexOf(pick || ladderFor(p1)[0]));
+    let level = savedLevel();
+    const tiles = SELECT_2P.map((id, i) => ({ id, i, x: 18 + (i % 5) * 84, y: 54 + Math.floor(i / 5) * 92, w: 78, h: 86 }));
+    const setLevel = (v) => {
+      level = v;
+      try { localStorage.setItem(LEVEL_KEY, String(v)); } catch (e) { /* storage blocked */ }
+    };
+    const start = () => go(briefing(p1, SELECT_2P[sel], 'cpu', level));
+    const back = () => go(select1P(p1, 'cpu'));
+    const s = {
+      enter() {
+        s.levels = CPU_LEVELS.map((L, i) => btn(L.name, 448 + i * 58, 286, 54, 30, () => setLevel(i), { size: 13 }));
+        s.buttons = [
+          btn('Back', 440, 372, 80, 38, back),
+          btn('Play!', 530, 372, 92, 38, start, { primary: true }),
+          ...s.levels,
+        ];
+      },
+      click(x, y) {
+        for (const t of tiles) if (x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h) { sel = t.i; SFX.play('click'); }
+      },
+      key(code) {
+        const K = G.KEY, n = tiles.length;
+        if (code === K.RIGHT || code === K.D) sel = (sel + 1) % n;
+        else if (code === K.LEFT || code === K.A) sel = (sel + n - 1) % n;
+        else if (code === K.DOWN || code === K.UP || code === K.S || code === K.W) sel = (sel + 5) % n;
+        else if (code === K.TAB) setLevel((level + 1) % CPU_LEVELS.length);
+        else if (code === K.ENTER || code === K.SPACE) return start();
+        else if (code === K.ESC) return back();
+        else return;
+        SFX.play('click');
+      },
+      draw(ctx, scale) {
+        R.background(ctx, scale);
+        ctx.fillStyle = 'rgba(8,12,26,0.72)';
+        ctx.fillRect(0, 0, G.W, G.H);
+        text(ctx, '1v1: pick your opponent', 222, 30, 22, '#ffd166');
+        for (const t of tiles) {
+          const on = t.i === sel;
+          ctx.save();
+          ctx.fillStyle = on ? '#3d5a8c' : '#25355a';
+          rr(ctx, t.x, t.y, t.w, t.h, 8);
+          ctx.fill();
+          ctx.lineWidth = on ? 3 : 1.5;
+          ctx.strokeStyle = on ? '#ffd166' : 'rgba(255,255,255,0.18)';
+          ctx.stroke();
+          ctx.beginPath();
+          rr(ctx, t.x + 2, t.y + 2, t.w - 4, t.h - 4, 7);
+          ctx.clip();
+          R.figure(ctx, t.id, t.x + t.w / 2 + 4, t.y + t.h + 2, 0.95, { t: on ? time : 0, flip: true });
+          ctx.restore();
+        }
+        // info
+        const id = SELECT_2P[sel], d = CHARS[id];
+        ctx.fillStyle = 'rgba(20,30,52,0.9)';
+        rr(ctx, 18, 246, 414, 164, 12);
+        ctx.fill();
+        text(ctx, d.name, 34, 270, 22, '#ffffff', 'left');
+        text(ctx, d.bio, 34, 306, 13, '#c9d6ee', 'left', 'normal');
+        text(ctx, d.pros, 34, 340, 13, '#ffd166', 'left', 'bold');
+        text(ctx, '“' + (greetingFor(id, p1) || d.lines[0]) + '”', 34, 380, 13, '#9fb3d1', 'left', 'italic');
+        // the match-up and the difficulty
+        ctx.fillStyle = 'rgba(20,30,52,0.9)';
+        rr(ctx, 440, 54, 182, 308, 12);
+        ctx.fill();
+        R.figure(ctx, p1, 488, 214, 1.15, { t: 0 });
+        R.figure(ctx, id, 576, 214, 1.15, { t: time, flip: true });
+        text(ctx, 'vs', 531, 120, 18, '#9fb3d1', 'center', '900');
+        fitText(ctx, CHARS[p1].name, 486, 232, 11, 'rgba(255,255,255,0.75)', 86, 'center');
+        fitText(ctx, d.name, 578, 232, 11, '#ffffff', 86, 'center');
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        R.line(ctx, 452, 250, 610, 250);
+        text(ctx, 'Difficulty', 450, 268, 12, '#9fb3d1', 'left');
+        text(ctx, 'Tab', 612, 268, 10, 'rgba(255,255,255,0.4)', 'right', 'normal');
+        text(ctx, 'Plays at ' + ROUND_NAMES[CPU_LEVELS[level].row] + ' level', 531, 334, 10, '#c9d6ee', 'center', 'normal');
+        s.levels.forEach((b, i) => { b.primary = i === level; });
+        drawButtons(ctx, s.buttons);
+      },
+    };
+    return s;
+  }
+
   /* ======================================================== BRIEFING */
-  function briefing(p1, p2, training) {
-    const versus = !!p2;
+  // mode: 'solo', 'cpu', 'versus' or 'training' (as for Match); level: the 1v1 difficulty
+  function briefing(p1, p2, mode, level) {
+    const versus = mode === 'versus';
     const kind = CHARS[p1].kind;
-    const start = () => go(playScreen(versus ? 'versus' : training ? 'training' : 'solo', p1, p2));
+    const start = () => go(playScreen(mode, p1, p2, level));
     const s = {
       enter() {
         SFX.music('game');
@@ -569,7 +699,11 @@ const UI = (() => {
             ? 'Your cloud keeps you floating just above the floor,\nand your serve pops straight up out of it.'
             : 'Swing early for a high lob, late for a steep smash.';
         }
-        if (training) {
+        if (mode === 'cpu') {
+          title = '1v1 Match';
+          rows.unshift(['Opponent', CHARS[p2].name + '  ·  ' + CPU_LEVELS[level].name]);
+        }
+        if (mode === 'training') {
           title = 'Training  ·  ' + CHARS[p1].name;
           rows = kind === 'jet' ? [rows[0], rows[1]] : rows;
           rows.push(['Shot trail', 'T  (on / off)']);
@@ -597,7 +731,7 @@ const UI = (() => {
     G.pauseAllowed = false;
   }
 
-  function playScreen(mode, p1, p2) {
+  function playScreen(mode, p1, p2, level) {
     let overlay = null; // {kind, alpha, fading, buttons}
     const s = {
       isPlay: true,
@@ -607,7 +741,7 @@ const UI = (() => {
         match = new Match(mode, p1, p2, {
           matchOver(m, kind) { openOverlay(kind); },
           champion() { openOverlay('champion'); },
-        });
+        }, level);
         match.start();
       },
       key(code) {
@@ -651,7 +785,10 @@ const UI = (() => {
       const close = (fn) => () => { overlay.fading = true; fn(); };
       let buttons;
       if (kind === 'won') buttons = [btn('Next Round', 504, 364, 124, 40, close(() => match.nextLevel()), { primary: true }), btn('Menu', 404, 364, 90, 40, menu)];
-      else if (kind === 'versus') buttons = [btn('Rematch', 236, 236, 168, 42, close(() => match.resetLevel()), { primary: true }), btn('Menu', 270, 288, 100, 34, menu)];
+      else if (kind === 'versus') {
+        const players = () => go(mode === 'cpu' ? selectOpponent(p1, p2) : select2P());
+        buttons = [btn('Rematch', 236, 236, 168, 42, close(() => match.resetLevel()), { primary: true }), btn('Players', 226, 288, 90, 34, players), btn('Menu', 324, 288, 90, 34, menu)];
+      }
       else if (kind === 'lost') buttons = [btn('Try Again', 236, 250, 168, 42, close(() => match.resetLevel()), { primary: true }), btn('Menu', 270, 302, 100, 34, menu)];
       else {
         const lv = unlockLevel() + 1;
@@ -768,13 +905,8 @@ const UI = (() => {
       if (code === G.KEY.BACKQUOTE) { G.toggleDebug(); return; }
       if (fade.dir) return;
       if (code === G.KEY.M) { SFX.toggleMute(); return; }
-      if (screen.key) { screen.key(code); return; }
-      const list = screen.buttons || [];
-      if (!focusable(list)) return;
-      const kb = list.filter((b) => b.kbd);
-      if (code === G.KEY.DOWN || code === G.KEY.S) focus = (focus + 1) % kb.length;
-      else if (code === G.KEY.UP || code === G.KEY.W) focus = (focus + kb.length - 1) % kb.length;
-      else if (code === G.KEY.ENTER || code === G.KEY.SPACE) kb[focus].onClick();
+      if (screen.key) screen.key(code);
+      else navigate(code);
     },
     mouseDown(x, y) {
       if (screen && screen.mouseDown) screen.mouseDown(x, y);
