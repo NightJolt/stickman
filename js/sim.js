@@ -99,7 +99,7 @@ class Shuttle {
     this.dy *= Math.pow(0.965, 60 * dt);
     this.dx *= Math.pow(0.965, 60 * dt);
     const ox = this.x, oy = this.y;
-    if (Math.abs(this.dx) > 5) this.x = G.tw(this.x + this.dx * dt);
+    if (Math.abs(this.dx) > 5) this.x = G.twMove(this.x, this.dx * dt);
     if (Math.abs(this.dy) > 5) this.y = G.tw(this.y + this.dy * dt);
     G.calcDir(this);
     this.rotation = this.dir;
@@ -120,7 +120,7 @@ class Shuttle {
     let hit = false;
     let k = 1;
     while (!hit) {
-      this.x = G.tw((k * (nx - ox)) / 4 + ox);
+      this.x = G.twMove(ox, (k * (nx - ox)) / 4);
       this.y = G.tw((k * (ny - oy)) / 4 + oy);
       hit = this.netCollide();
       if (k === 4) break;

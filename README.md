@@ -40,6 +40,7 @@ P pauses (in the tournament the pause screen shows the bracket), Esc returns to 
 - AI: the target-offset logic, skill rolls, jump and jump-serve choices, the 500 ms swing cooldown, and the round-by-round tuning (speed 1.1 to 1.15, skill 100 to 65).
 - Rules and flow: matches to 7, the winner serves, five tournament rounds with a fixed opponent ladder per character (except the finals: where the original pitted Zara, Nimbus and Boris against their own mirror, they now face Turbo, Boris and Pogo Pete), and unlock tiers of 4, 4, 2 and 2.
 - Engine timing: integer-millisecond frame timestamps, timeline clips that advance by elapsed time, positions stored in 1/20 px steps, and the original's one-shared-update-list behaviour.
+  One deliberate change: the original rounds every position toward the stage's left edge, so a shuttle drifting slowly right falls a little short while one drifting left overshoots. That made shots toward the right-hand player net about twice as often in computer-vs-computer play. Here the shuttle's sideways moves are rounded toward zero in both directions. Flights toward the right-hand side are unchanged bit for bit; flights toward the left land on average 1 px (at most about 7 px) nearer the net.
 
 The art, characters, names, text, sound effects and music are original to this project. Nothing was extracted from the SWF except numeric gameplay data (`js/rigs.js`).
 

@@ -28,6 +28,11 @@ G.inBox = (b, x, y) => x >= b.l && x <= b.r && y >= b.t && y <= b.b;
 
 // Positions on display objects are stored in twips (1/20 px), truncated toward zero.
 G.tw = (v) => Math.trunc(v * 20) / 20;
+// Move x by d, dropping the fraction of a twip from the move itself. G.tw(x + d) drops it toward
+// the stage's left edge, so a slow drift to the right falls short while the same drift to the
+// left overshoots, which hands the left-hand side a small edge. Moves to the right come out
+// exactly as G.tw(x + d); moves to the left mirror them.
+G.twMove = (x, d) => (d >= 0 ? G.tw(x + d) : Math.ceil((x + d) * 20) / 20);
 
 /* ---------- random / math helpers (same semantics as the original utility class) ---------- */
 G.rand = (a, b, whole) => {
