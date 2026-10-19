@@ -57,6 +57,10 @@
     if (i !== -1) G.keys.splice(i, 1);
   });
   window.addEventListener('blur', () => { G.keys.length = 0; });
+  window.addEventListener('paste', (e) => {
+    const t = e.clipboardData && e.clipboardData.getData('text');
+    if (t) UI.paste(t);
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && G.pauseAllowed && !G.paused) G.togglePause();
   });

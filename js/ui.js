@@ -85,7 +85,12 @@ const UI = (() => {
     ], last: ['Back', () => ['main', 0]] },
     multi: { caption: 'Multiplayer', items: [
       ['Local 1v1', () => select2P()],
+      ['Online 1v1', () => ['online']],
     ], last: ['Back', () => ['main', 1]] },
+    online: { caption: 'Online 1v1', items: [
+      ['Create Room', () => roomScreen('create')],
+      ['Join Room', () => roomScreen('join')],
+    ], last: ['Back', () => ['multi', 1]] },
   };
   function titleScreen(menu = 'main', at = 0) {
     let demo = null;
@@ -570,6 +575,352 @@ const UI = (() => {
     return s;
   }
 
+  /* ======================================================== ONLINE: rooms */
+  // kind 'create': get a code from the room server and wait for the other player.
+  // kind 'join': type the code you were sent.
+  function roomScreen(kind) {
+    const create = kind === 'create';
+    let state = create ? 'connecting' : 'typing'; // connecting | waiting | typing | joining | error
+    let code = '', err = '', copied = 0, keep = false;
+    const back = () => go(titleScreen('online', create ? 0 : 1));
+    const join = () => {
+      if (code.length !== NET.CODE_LENGTH || state === 'joining') return;
+      state = 'joining';
+      err = '';
+      NET.join(code);
+    };
+    const type = (ch) => {
+      ch = ch.toUpperCase();
+      if (state === 'typing' && code.length < NET.CODE_LENGTH && NET.CODE_CHARS.includes(ch)) {
+        code += ch;
+        err = '';
+        SFX.play('click');
+      }
+    };
+    const copy = () => {
+      try {
+        navigator.clipboard.writeText(code).then(() => { copied = time; }, () => {});
+      } catch (e) { /* no clipboard here */ }
+    };
+    const s = {
+      typing: !create,
+      enter() {
+        NET.listen((msg) => {
+          if (msg.t === 'created') {
+            code = msg.code;
+            state = 'waiting';
+          } else if (msg.t === 'paired') {
+            keep = true;
+            SFX.play('pop');
+            go(onlineSelect(msg.role, msg.code));
+          } else if (msg.t === 'error') {
+            err = msg.msg;
+            state = create ? 'error' : 'typing';
+          }
+        });
+        if (create) NET.create();
+        s.buttons = create
+          ? [btn('Copy code', 230, 300, 180, 38, copy, { primary: true }), btn('Cancel', 260, 350, 120, 34, back)]
+          : [btn('Join', 230, 300, 180, 40, join, { primary: true }), btn('Back', 260, 350, 120, 34, back)];
+      },
+      leave() { if (!keep) NET.close(); },
+      key(c) {
+        const K = G.KEY;
+        if (c === K.ESC) return back();
+        if (create) {
+          if (c === K.ENTER && state === 'waiting') copy();
+          if (c === K.ENTER && state === 'error') { state = 'connecting'; err = ''; NET.create(); }
+          return;
+        }
+        if (c === 8) { code = code.slice(0, -1); err = ''; }
+        else if (c === K.ENTER) join();
+        else if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57)) type(String.fromCharCode(c));
+      },
+      paste(str) {
+        if (create || state !== 'typing') return;
+        for (const ch of String(str).replace(/\s/g, '')) type(ch);
+      },
+      draw(ctx, scale) {
+        R.background(ctx, scale);
+        ctx.fillStyle = 'rgba(8,12,26,0.78)';
+        ctx.fillRect(0, 0, G.W, G.H);
+        text(ctx, create ? 'Create Room' : 'Join Room', 320, 60, 30, '#ffd166', 'center', '900', '#1b1b24', 6);
+        let line = '';
+        if (create) {
+          if (state === 'connecting') line = 'Connecting' + '...'.slice(0, 1 + (Math.floor(time * 3) % 3));
+          else if (state === 'waiting') line = 'Send this code to your opponent.\nWaiting for them to join' + '...'.slice(0, 1 + (Math.floor(time * 3) % 3));
+        } else {
+          line = state === 'joining' ? 'Joining' + '...'.slice(0, 1 + (Math.floor(time * 3) % 3)) : 'Type the code your opponent sent you.';
+        }
+        text(ctx, line, 320, 116, 14, '#c9d6ee', 'center', 'normal');
+        // the code, one box per character
+        const n = NET.CODE_LENGTH, w = 56, gap = 12, x0 = 320 - (n * w + (n - 1) * gap) / 2;
+        for (let i = 0; i < n; i++) {
+          const x = x0 + i * (w + gap), ch = code[i] || '';
+          const caret = !create && state === 'typing' && i === code.length && Math.floor(time * 2) % 2 === 0;
+          ctx.fillStyle = 'rgba(20,30,52,0.95)';
+          rr(ctx, x, 158, w, 66, 10);
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = caret || (create && ch) ? '#ffd166' : 'rgba(255,255,255,0.25)';
+          ctx.stroke();
+          if (ch) text(ctx, ch, x + w / 2, 192, 38, '#ffffff', 'center', '900');
+          else if (caret) {
+            ctx.fillStyle = '#ffd166';
+            ctx.fillRect(x + w / 2 - 1.5, 172, 3, 38);
+          }
+        }
+        if (err) text(ctx, err, 320, 254, 14, '#ff7675', 'center', 'bold');
+        else if (create && copied && time - copied < 1.5) text(ctx, 'Copied!', 320, 254, 14, '#7bed9f', 'center', 'bold');
+        const hide = (b, h) => { b.hidden = h; };
+        if (create) {
+          hide(s.buttons[0], state !== 'waiting' && state !== 'error');
+          s.buttons[0].label = state === 'error' ? 'Try again' : 'Copy code';
+          s.buttons[0].onClick = state === 'error' ? () => { state = 'connecting'; err = ''; NET.create(); } : copy;
+        } else hide(s.buttons[0], code.length !== n || state === 'joining');
+        drawButtons(ctx, s.buttons);
+      },
+    };
+    return s;
+  }
+
+  /* ======================================================== ONLINE: pick players */
+  // Each player picks their own character and says they're ready; the host starts the match.
+  function onlineSelect(role, room) {
+    const me = role === 'host' ? 0 : 1, them = 1 - me;
+    const picks = [null, null], ready = [false, false];
+    let cursor = 0, keep = false, gone = null;
+    const tiles = SELECT_2P.map((id, i) => ({ id, i, x: 40 + (i % 5) * 76, y: 64 + Math.floor(i / 5) * 88, w: 70, h: 82 }));
+    const leave = () => go(titleScreen('online'));
+    const start = (p1, p2) => {
+      keep = true;
+      go(onlineMatch(role, p1, p2));
+    };
+    const pick = (i) => {
+      if (gone) return;
+      cursor = i;
+      picks[me] = SELECT_2P[i];
+      ready[me] = false;
+      NET.send({ t: 'pick', id: picks[me] });
+      NET.send({ t: 'ready', on: false });
+      SFX.play('click');
+    };
+    const toggleReady = () => {
+      if (gone || !picks[me]) return;
+      ready[me] = !ready[me];
+      NET.send({ t: 'ready', on: ready[me] });
+      SFX.play('click');
+      check();
+    };
+    const check = () => {
+      if (role !== 'host' || !ready[0] || !ready[1] || keep) return;
+      NET.send({ t: 'go', p1: picks[0], p2: picks[1] });
+      start(picks[0], picks[1]);
+    };
+    const s = {
+      enter() {
+        NET.listen((msg) => {
+          if (msg.t === 'pick' && SELECT_2P.includes(msg.id)) { picks[them] = msg.id; ready[them] = false; }
+          else if (msg.t === 'ready') { ready[them] = !!msg.on && !!picks[them]; check(); }
+          else if (msg.t === 'go' && role === 'guest' && CHARS[msg.p1] && CHARS[msg.p2]) start(msg.p1, msg.p2);
+        });
+        NET.onLeave((why) => { gone = why; SFX.play('thud'); });
+        s.buttons = [
+          btn('Leave', 40, 372, 90, 38, leave),
+          btn(() => (ready[me] ? 'Not ready' : 'Ready!'), 500, 372, 110, 38, toggleReady, { primary: true }),
+        ];
+      },
+      leave() { if (!keep) NET.close(); },
+      click(x, y) {
+        for (const t of tiles) if (x >= t.x && x <= t.x + t.w && y >= t.y && y <= t.y + t.h) pick(t.i);
+      },
+      key(code) {
+        const K = G.KEY;
+        if (code === K.RIGHT || code === K.D) cursor = (cursor + 1) % 10;
+        else if (code === K.LEFT || code === K.A) cursor = (cursor + 9) % 10;
+        else if (code === K.DOWN || code === K.UP || code === K.S || code === K.W) cursor = (cursor + 5) % 10;
+        else if (code === K.ENTER || code === K.SPACE) {
+          if (picks[me] === SELECT_2P[cursor]) toggleReady();
+          else pick(cursor);
+        } else if (code === K.ESC) leave();
+      },
+      draw(ctx, scale) {
+        R.background(ctx, scale);
+        ctx.fillStyle = 'rgba(8,12,26,0.72)';
+        ctx.fillRect(0, 0, G.W, G.H);
+        text(ctx, 'Online 1v1: pick your player', 230, 34, 22, '#ffd166');
+        text(ctx, 'Room ' + room, 620, 18, 11, 'rgba(255,255,255,0.5)', 'right', 'bold');
+        tiles.forEach((t) => {
+          const on = t.i === cursor, mine = picks[me] === t.id;
+          ctx.save();
+          ctx.fillStyle = on || mine ? '#3d5a8c' : '#25355a';
+          rr(ctx, t.x, t.y, t.w, t.h, 8);
+          ctx.fill();
+          ctx.lineWidth = on ? 3 : mine ? 2 : 1.5;
+          ctx.strokeStyle = on ? '#ffd166' : mine ? '#7bed9f' : 'rgba(255,255,255,0.18)';
+          ctx.stroke();
+          ctx.beginPath();
+          rr(ctx, t.x + 2, t.y + 2, t.w - 4, t.h - 4, 7);
+          ctx.clip();
+          R.figure(ctx, t.id, t.x + t.w / 2 - 2, t.y + t.h - 14, 0.72, { t: on ? time : 0 });
+          ctx.fillStyle = 'rgba(8,12,26,0.75)';
+          ctx.fillRect(t.x, t.y + t.h - 16, t.w, 16);
+          ctx.restore();
+          text(ctx, CHARS[t.id].name, t.x + t.w / 2, t.y + t.h - 8, 10, '#ffffff', 'center', 'bold');
+        });
+        // you and them; the host plays on the left
+        [me, them].forEach((k, row) => {
+          const x = 440, y = 64 + row * 150;
+          ctx.fillStyle = 'rgba(20,30,52,0.9)';
+          rr(ctx, x, y, 180, 140, 12);
+          ctx.fill();
+          if (ready[k]) {
+            ctx.strokeStyle = '#7bed9f';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          text(ctx, (k === me ? 'You' : 'Opponent') + (k === 0 ? '  (left)' : '  (right)'), x + 12, y + 16, 11, '#9fb3d1', 'left');
+          text(ctx, ready[k] ? 'READY' : k === them && !picks[k] ? 'choosing...' : '', x + 168, y + 16, 11, ready[k] ? '#7bed9f' : 'rgba(255,255,255,0.45)', 'right', 'bold');
+          if (picks[k]) {
+            R.figure(ctx, picks[k], x + 100, y + 134, 0.9, { t: time, flip: k === 1 });
+            text(ctx, CHARS[picks[k]].name, x + 12, y + 36, 15, '#ffffff', 'left');
+          }
+        });
+        text(ctx, 'Move  ← → / A D     Jump  ↑ / W     Swing  ↓ / S / Space', 230, 260, 11, 'rgba(255,255,255,0.55)', 'center', 'normal');
+        text(ctx, picks[me] ? (ready[me] ? 'Waiting for your opponent...' : 'Press Ready when you are set.') : 'Click a player or use the arrows and Enter.', 230, 284, 12, '#c9d6ee', 'center', 'normal');
+        s.buttons[1].hidden = !picks[me] || !!gone;
+        drawButtons(ctx, s.buttons);
+        if (gone) {
+          ctx.fillStyle = 'rgba(8,12,26,0.85)';
+          rr(ctx, 120, 300, 360, 56, 12);
+          ctx.fill();
+          text(ctx, gone === 'left' ? 'Your opponent left the room.' : 'Lost the connection.', 300, 328, 15, '#ff7675', 'center', 'bold');
+        }
+      },
+    };
+    return s;
+  }
+
+  /* ======================================================== ONLINE: the match */
+  // The host runs the match and sends it to the guest every frame (js/online.js).
+  function onlineMatch(role, p1, p2) {
+    const host = role === 'host';
+    let sync = null, overlay = null, gone = null;
+    let asked = false, theyAsked = false;
+    const menu = () => go(titleScreen());
+    const rematch = () => {
+      if (asked || gone) return;
+      asked = true;
+      NET.send({ t: 'rematch' });
+      if (host && theyAsked) restart();
+    };
+    const restart = () => { // host: both want another
+      match.resetLevel();
+      closeOverlay();
+    };
+    function closeOverlay() {
+      if (overlay) overlay.fading = true;
+      asked = theyAsked = false;
+    }
+    function openOverlay(kind) {
+      const buttons = kind === 'over'
+        ? [btn('Rematch', 236, 244, 168, 42, rematch, { primary: true }), btn('Menu', 270, 296, 100, 34, menu)]
+        : [btn('Menu', 250, 260, 140, 40, menu, { primary: true })];
+      const won = host ? match.score1 > match.score2 : match.score2 > match.score1;
+      overlay = { kind, alpha: 0, fading: false, buttons, won, s: host ? [match.score1, match.score2] : [match.score2, match.score1] };
+    }
+    const s = {
+      isPlay: true,
+      enter() {
+        disposeMatch();
+        SFX.music('game');
+        match = new Match(host ? 'online' : 'guest', p1, p2, {
+          matchOver() { openOverlay('over'); },
+          rematch() { closeOverlay(); },
+        });
+        match.start();
+        sync = host ? new HostSync(match) : new GuestSync(match);
+        NET.listen((msg) => {
+          if (msg.t === 's' && !host) sync.snapshot(msg);
+          else if (msg.t === 'i' && host) sync.input(msg.k | 0);
+          else if (msg.t === 'rematch') {
+            theyAsked = true;
+            if (host && asked) restart();
+          }
+        });
+        NET.onLeave((why) => {
+          gone = why;
+          if (host) match.p2.remote = { l: false, r: false, u: false, s: false }; // let go of their keys
+          SFX.play('thud');
+          openOverlay('left');
+        });
+      },
+      leave() { NET.close(); },
+      key(code) {
+        if (code === G.KEY.ESC) { SFX.play('thud'); menu(); return; }
+        if (overlay && !overlay.fading && code === G.KEY.ENTER) overlay.buttons[0].onClick();
+      },
+      tick(dt) {
+        if (host && sync && !gone) sync.frame();
+        if (!overlay) return;
+        if (overlay.fading) {
+          overlay.alpha -= 4.5 * dt;
+          if (overlay.alpha <= 0) overlay = null;
+        } else if (overlay.alpha < 1) overlay.alpha = Math.min(1, overlay.alpha + 4.5 * dt);
+      },
+      get buttons() { return overlay && !overlay.fading ? overlay.buttons : []; },
+      draw(ctx, scale) {
+        if (!match) return;
+        R.scene(ctx, match, scale);
+        // which one is you
+        const p = host ? match.p1 : match.p2;
+        if (p && !match.over) {
+          const y = p.y - 1.25 * R.headHeight(p.id) - 30;
+          ctx.save();
+          ctx.globalAlpha = 0.85;
+          text(ctx, 'YOU', p.x, y, 10, '#ffd166', 'center', '900', '#1b1b24', 3);
+          ctx.fillStyle = '#ffd166';
+          ctx.beginPath();
+          ctx.moveTo(p.x - 5, y + 7);
+          ctx.lineTo(p.x + 5, y + 7);
+          ctx.lineTo(p.x, y + 13);
+          ctx.fill();
+          ctx.restore();
+        }
+        if (NET.rtt !== null && !gone) text(ctx, 'ping ' + Math.round(NET.rtt) + ' ms', 8, 12, 10, 'rgba(255,255,255,0.55)', 'left', 'bold');
+        if (!host && sync && sync.stalled > 45 && !overlay) {
+          ctx.fillStyle = 'rgba(8,12,26,0.75)';
+          rr(ctx, 200, 170, 240, 44, 10);
+          ctx.fill();
+          text(ctx, 'Waiting for the host' + '...'.slice(0, 1 + (Math.floor(time * 3) % 3)), 320, 192, 14, '#ffffff', 'center', 'bold');
+        }
+        if (overlay) {
+          const o = overlay;
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, o.alpha));
+          ctx.fillStyle = 'rgba(8,12,26,0.85)';
+          rr(ctx, 180, 120, 280, 228, 16);
+          ctx.fill();
+          ctx.strokeStyle = '#ffd166';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          if (o.kind === 'over') {
+            text(ctx, o.won ? 'You Win!' : 'Good Try', 320, 158, 32, '#ffd166', 'center', '900');
+            text(ctx, 'Final score ' + o.s[0] + ' - ' + o.s[1], 320, 196, 14, '#dfe7f5', 'center', 'normal');
+            const note = gone ? '' : asked ? 'Waiting for your opponent...' : theyAsked ? 'Your opponent wants a rematch!' : '';
+            text(ctx, note, 320, 222, 12, theyAsked && !asked ? '#7bed9f' : '#9fb3d1', 'center', 'bold');
+          } else {
+            text(ctx, 'Match over', 320, 166, 28, '#ffd166', 'center', '900');
+            text(ctx, gone === 'left' ? 'Your opponent left.' : 'Lost the connection.', 320, 208, 15, '#dfe7f5', 'center', 'normal');
+          }
+          drawButtons(ctx, o.buttons);
+          ctx.restore();
+        }
+      },
+    };
+    return s;
+  }
+
   /* ======================================================== SELECT (1v1 opponent) */
   const LEVEL_KEY = 'shuttlesticks.level';
   function savedLevel() {
@@ -904,9 +1255,12 @@ const UI = (() => {
     key(code) {
       if (code === G.KEY.BACKQUOTE) { G.toggleDebug(); return; }
       if (fade.dir) return;
-      if (code === G.KEY.M) { SFX.toggleMute(); return; }
+      if (code === G.KEY.M && !screen.typing) { SFX.toggleMute(); return; }
       if (screen.key) screen.key(code);
       else navigate(code);
+    },
+    paste(str) {
+      if (screen && screen.paste && !fade.dir) screen.paste(str);
     },
     mouseDown(x, y) {
       if (screen && screen.mouseDown) screen.mouseDown(x, y);

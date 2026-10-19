@@ -7,7 +7,7 @@ open `index.html` in a browser.
 ## Modes
 
 - **Single Player**: Tournament (five rounds against a fixed ladder), 1v1 and Training.
-- **Multiplayer**: Local 1v1, two players on one keyboard.
+- **Multiplayer**: Local 1v1 (two players on one keyboard) and Online 1v1.
 
 1v1 is new to this remake: pick your player, then any computer opponent (the flyers excepted,
 since the computer can't steer one) and a difficulty. Easy, Normal and Hard play like the
@@ -19,6 +19,32 @@ difficulty, and the choice is remembered.
 
 Behind the title menu two computer players with random characters play silently for as long as
 the menu is up, with a new pair each time you return to it.
+
+## Online 1v1
+
+Multiplayer → Online 1v1 → **Create Room** gives you a four-character code to send to your
+opponent; they pick **Join Room** and type it. Each player picks a character and presses Ready,
+and the creator's game starts the match. Both play with the single-player keys. The creator is on
+the left, and a YOU marker shows each player which side is theirs. Rematch needs both players to
+ask; if one leaves, the other is told.
+
+How it works: the creator's browser runs the real match (`js/online.js`). The other player
+sends their keys and draws the snapshot the host sends every frame (about 6 KB/s), a few frames
+behind the newest one so network jitter doesn't show. That buffer starts at 3 frames, grows when
+snapshots run late, and shrinks again on a steady line. Running one simulation keeps both screens
+in agreement. The cost is that the joining player's own moves show up one round trip, plus the
+buffer, after they press.
+
+The room server (`server/server.js`) only pairs players by code and passes messages between
+them. It needs Node 18 or newer and no packages.
+
+- Local play: `node server/server.js`, then open http://localhost:8787 in two windows (it serves
+  the game too). A page opened from disk looks for the server on localhost:8787; `?server=wss://host/ws`
+  points it elsewhere.
+- On the VM: install `ops/systemd/stickman-rooms.service` (instructions at its top) and reload
+  nginx with the `/ws` block in `ops/nginx/stickman.conf`. `ops/deploy.sh` restarts the service
+  when `server/` changes, provided `sudo -n systemctl restart stickman-rooms` is allowed;
+  otherwise it logs a reminder.
 
 ## The computer opponent
 
@@ -77,6 +103,8 @@ The art, characters, names, text, sound effects and music are original to this p
 - `js/core.js`: frame clock, update list, timeline clips, timers, input
 - `js/sim.js`: shuttle, players, match rules, training machine, effects
 - `js/ai.js`: the computer opponent
+- `js/net.js`, `js/online.js`: Online 1v1 connection and host/guest sync
+- `server/server.js`: the room server for Online 1v1 (not published with the game files)
 - `js/characters.js`: roster, ladders, unlock tiers
 - `js/music.js`: music engine (synth voices, reverb, delay, ducking) and the two tracks, written as note data
 - `js/render.js`, `js/ui.js`, `js/audio.js`, `js/main.js`: drawing, screens, sound effects, boot
@@ -86,4 +114,5 @@ The art, characters, names, text, sound effects and music are original to this p
 Live at https://stickman.urbancare.ge, on the urbancare VM. Every push to `main` is published
 within about a minute: the VM's `watch-deploy.sh` syncs `~/stickman` and runs `ops/deploy.sh`,
 which copies the game files into a new release and switches nginx to it
-(`ops/nginx/stickman.conf`). There is no build step there either.
+(`ops/nginx/stickman.conf`). There is no build step there either. Online 1v1 also needs the room
+server running there (see Online 1v1 above).

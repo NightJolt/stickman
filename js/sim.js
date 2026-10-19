@@ -177,7 +177,8 @@ class Player {
     this.overhead = false;
     this.hitLive = false;
     this.power = 1;
-    this.controls = 0;         // 0 = solo keys, 1 = P1 (WASD), 2 = P2 (arrows)
+    this.controls = 0;         // 0 = solo keys, 1 = P1 (WASD), 2 = P2 (arrows), 3 = online
+    this.remote = null;        // an online opponent's keys: { l, r, u, s }
     this.state = 'normal';     // normal | forward | backward | jump
     this.underShift = 0;       // temporary hitbox y shift (player-local px)
     this.brain = null;         // computer players: js/ai.js
@@ -419,7 +420,9 @@ class Player {
       up = [K.UP]; swing = [K.DOWN]; left = [K.LEFT]; right = [K.RIGHT];
     }
     const any = (list) => list.some(G.isDown);
-    const u = any(up), s = any(swing), l = any(left), r = any(right);
+    // controls 3: an online opponent, whose keys arrive over the network (js/online.js)
+    const rk = this.controls === 3 ? this.remote : null;
+    const u = rk ? rk.u : any(up), s = rk ? rk.s : any(swing), l = rk ? rk.l : any(left), r = rk ? rk.r : any(right);
     if (r && l) {
       this.dx = 0;
       if (!this.inAir) this.state = 'normal';
@@ -461,12 +464,14 @@ class Player {
 /* ======================================================================== */
 class Match {
   // mode: 'solo' (tournament), 'cpu' (1v1 against a computer player of your choice), 'versus'
-  // (two players), 'training' (against the shot machine) or 'demo' (two computer players rallying
-  // behind the title screen, silent and endless). `level` is the 1v1 opponent's CPU_LEVELS index.
+  // (two players), 'training' (against the shot machine), 'demo' (two computer players rallying
+  // behind the title screen, silent and endless), or for Online 1v1 'online' (the host's real
+  // match) and 'guest' (the other player's copy, driven by the host's snapshots; js/online.js).
+  // `level` is the 1v1 opponent's CPU_LEVELS index.
   constructor(mode, p1Id, p2Id, hooks, level = 1) {
     this.mode = mode;
     this.level = level;
-    this.silent = mode === 'demo';
+    this.silent = mode === 'demo' || mode === 'guest'; // a guest plays the sounds the host sends
     this.p1Id = p1Id;
     this.p2Id = p2Id || null;
     this.hooks = hooks;          // UI callbacks
@@ -489,6 +494,9 @@ class Match {
     this.net = new G.Clip(24, {});
     this.bubble = null;
     this.machine = mode === 'training' ? new ShotMachine(this) : null;
+    this.shuttleSeq = 0;        // shuttles spawned (online: tells the guest a new one is in play)
+    this.hostSync = null;       // online host: HostSync
+    this.guestSync = null;      // online guest: GuestSync
     this._update = (dt) => this.update(dt);
   }
 
@@ -512,6 +520,14 @@ class Match {
       this.greet();
       this.newRally();
       this.banner();
+    } else if (this.mode === 'online' || this.mode === 'guest') {
+      this.setupPlayer2();
+      this.p2.controls = 3;
+      G.pauseAllowed = false; // a pause would stop both screens
+      if (this.mode === 'online') {
+        this.newRally();
+        this.banner();
+      }
     } else if (this.mode === 'demo') {
       this.p2 = this.cpuPlayer(this.p2Id, 500, -1, G.pick(ROUND_AI));
       this.server = G.chance(50) ? 1 : 2;
@@ -577,7 +593,7 @@ class Match {
   }
 
   resetLevel() {
-    G.pauseAllowed = true;
+    G.pauseAllowed = this.mode !== 'online';
     this.flawless = true;
     if (this.mode !== 'solo') {
       this.over = false;
@@ -594,6 +610,7 @@ class Match {
   // what is being played: on the opening banner and under the score
   title() {
     if (this.mode === 'versus') return 'Exhibition';
+    if (this.mode === 'online' || this.mode === 'guest') return 'Online';
     if (this.mode === 'cpu') return '1v1  ·  ' + CPU_LEVELS[this.level].name;
     return ROUND_NAMES[this.round - 1] || '';
   }
@@ -601,6 +618,7 @@ class Match {
   banner() {
     if (this.machine) return this.fx.banner('Training', CHARS[this.p1Id].name, 'Shot Machine');
     this.fx.banner(this.title(), CHARS[this.p1Id].name, CHARS[this.p2Id].name);
+    if (this.hostSync) this.hostSync.event('banner', this.title(), CHARS[this.p1Id].name, CHARS[this.p2Id].name);
   }
 
   newRally() {
@@ -616,6 +634,7 @@ class Match {
   spawnShuttle(x, y) {
     if (this.shuttle) this.shuttle.remove();
     this.shuttle = new Shuttle(this, x, y);
+    this.shuttleSeq++;
   }
 
   point(side) {
@@ -635,10 +654,11 @@ class Match {
     if (this.mode !== 'solo') { // a single match (the title-screen demo never ends)
       if (this.mode !== 'demo' && (this.score1 >= WIN || this.score2 >= WIN)) {
         const p1Won = this.score1 > this.score2;
+        const mine = this.mode === 'cpu' || this.mode === 'online'; // told from player 1's side
         this.over = true;
         this.celebrating = this.mode !== 'cpu' || p1Won;
-        this.sfx(this.celebrating ? 'cheer' : 'sigh');
-        if (this.mode === 'cpu') this.status = p1Won ? 'You Win' : 'Good Try';
+        this.sfx(mine && !p1Won ? 'sigh' : 'cheer');
+        if (mine) this.status = p1Won ? 'You Win' : 'Good Try';
         else this.status = p1Won ? 'P1 Wins' : 'P2 Wins';
         this.hooks.matchOver(this, 'versus');
       } else {
@@ -665,6 +685,7 @@ class Match {
   }
 
   update(dt) {
+    if (this.guestSync) return this.guestSync.update(dt);
     if (this.p1) this.p1.update(dt);
     if (this.p2) this.p2.update(dt);
     if (this.shuttle) this.shuttle.update(dt);
@@ -676,6 +697,7 @@ class Match {
 
   sfx(name, arg) {
     if (!this.silent) SFX.play(name, arg);
+    if (this.hostSync) this.hostSync.event('sfx', name, arg);
   }
 
   // mouse press during play (mouse flyers swing on click)

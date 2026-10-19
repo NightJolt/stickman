@@ -10,8 +10,13 @@
 #
 # Run it FROM the checkout after it has been synced to main; the VM's
 # watch-deploy.sh does that on every push. The checkout itself is never served,
-# so .git and ops/ stay private. Every file except dotfiles, ops/ and README.md
-# is published, so a new asset folder needs no change here.
+# so .git and ops/ stay private. Every file except dotfiles, ops/, server/ and
+# README.md is published, so a new asset folder needs no change here.
+#
+# Online 1v1 needs the room server too: server/server.js, run from this checkout
+# by ops/systemd/stickman-rooms.service behind nginx's /ws. When server/ changes,
+# this script restarts that service if it is allowed to (sudo -n), and says so
+# when it is not.
 #
 # Rollback: point `current` at an older release, e.g.
 #   ln -sfn ~/stickman-site/releases/<sha> ~/stickman-site/current
@@ -36,7 +41,7 @@ if [ -d "$release" ]; then
   log "release $SHA already on disk, reusing it"
 else
   rm -rf "$release.tmp"
-  rsync -a --exclude='.*' --exclude='/ops' --exclude='/README.md' ./ "$release.tmp/"
+  rsync -a --exclude='.*' --exclude='/ops' --exclude='/server' --exclude='/README.md' ./ "$release.tmp/"
   [ -f "$release.tmp/index.html" ] || { log "no index.html in $SHA - not published"; rm -rf "$release.tmp"; exit 1; }
   chmod -R a+rX "$release.tmp"
   mv "$release.tmp" "$release"
@@ -57,6 +62,15 @@ if [ "$code" != 200 ]; then
   exit 1
 fi
 log "live: $URL serves $SHA"
+
+# The room server runs from the checkout; restart it when its code changed.
+if [ -n "$previous" ] && ! git diff --quiet "$(basename "$previous")" HEAD -- server/ 2>/dev/null; then
+  if sudo -n systemctl restart stickman-rooms 2>/dev/null; then
+    log "server/ changed: restarted stickman-rooms"
+  else
+    log "server/ changed: restart it with  sudo systemctl restart stickman-rooms"
+  fi
+fi
 
 # Keep the newest few releases (by modification time) for rollback.
 ls -1dt "$SITE"/releases/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do

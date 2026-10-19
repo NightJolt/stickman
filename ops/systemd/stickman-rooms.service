@@ -1,0 +1,26 @@
+# Shuttle Sticks online rooms: the WebSocket relay behind nginx's /ws (ops/nginx/stickman.conf).
+# It runs straight from the git checkout, so a push reaches it after a restart (ops/deploy.sh
+# does that when server/ changes and it may).
+#
+#   sudo cp ~/stickman/ops/systemd/stickman-rooms.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now stickman-rooms
+#   journalctl -u stickman-rooms -f
+[Unit]
+Description=Shuttle Sticks online rooms (WebSocket relay)
+After=network.target
+
+[Service]
+User=urbancare
+WorkingDirectory=/home/urbancare/stickman
+Environment=PORT=8787 HOST=127.0.0.1 STATIC=0
+ExecStart=/usr/bin/env node server/server.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
