@@ -435,7 +435,7 @@ class Player {
     const K = G.KEY;
     let up, swing, left, right;
     if (this.controls === 0) {
-      up = [K.UP, K.W]; swing = [K.DOWN, K.S, K.SPACE, K.J, K.K, K.L]; left = [K.LEFT, K.A]; right = [K.RIGHT, K.D];
+      up = [K.UP, K.W]; swing = [K.DOWN, K.S, K.SPACE]; left = [K.LEFT, K.A]; right = [K.RIGHT, K.D];
     } else if (this.controls === 1) {
       up = [K.W]; swing = [K.S, K.SPACE]; left = [K.A]; right = [K.D];
     } else {
@@ -464,10 +464,7 @@ class Player {
     }
     if (s) {
       if (!this.swingHeld) {
-        if (G.isDown(K.J)) this.swing(1);
-        else if (G.isDown(K.K)) this.swing(0.75);
-        else if (G.isDown(K.L)) this.swing(0.65);
-        else this.swing(0.65);
+        this.swing(0.65);
       } else {
         this.power += (0.35 / 0.024) * dt;
       }
@@ -570,7 +567,7 @@ class Player {
 /*                                  Match                                   */
 /* ======================================================================== */
 class Match {
-  // mode: 'solo' (tournament) or 'versus' (two players)
+  // mode: 'solo' (tournament), 'versus' (two players) or 'training' (against the shot machine)
   constructor(mode, p1Id, p2Id, hooks) {
     this.mode = mode;
     this.p1Id = p1Id;
@@ -589,10 +586,12 @@ class Match {
     this.server = 1;
     this.round = 0;
     this.flawless = true;
+    this.results = [];          // tournament: [score1, score2] of each round won
     this.status = '0 - 0';
     this.netClipX = G.NET_X;
     this.net = new G.Clip(24, {});
     this.bubble = null;
+    this.machine = mode === 'training' ? new ShotMachine(this) : null;
     this._update = (dt) => this.update(dt);
   }
 
@@ -609,6 +608,8 @@ class Match {
       this.p1.controls = 1;
       this.p2.controls = 2;
       this.newRally();
+      this.banner();
+    } else if (this.machine) {
       this.banner();
     } else {
       this.nextLevel();
@@ -627,8 +628,7 @@ class Match {
 
   setupOpponent() {
     if (this.p2) this.p2.dispose();
-    const ladder = LADDER[this.p1Id] || ['stan', 'stan', 'stan', 'stan', 'stan'];
-    this.p2Id = ladder[this.round - 1];
+    this.p2Id = ladderFor(this.p1Id)[this.round - 1];
     let [speed, jump, power, skill] = ROUND_AI[this.round - 1];
     if (this.p1Id === 'jo') speed *= 1.1;
     const p = new Player(this, this.p2Id, 500, G.GROUND, -1);
@@ -675,10 +675,9 @@ class Match {
   }
 
   banner() {
+    if (this.machine) return this.fx.banner('Training', CHARS[this.p1Id].name, 'Shot Machine');
     const title = this.mode === 'versus' ? 'Exhibition' : ROUND_NAMES[this.round - 1];
-    let n2 = CHARS[this.p2Id].name;
-    if (this.mode !== 'versus' && this.round === 5 && this.p1Id === this.p2Id) n2 = 'Evil Twin';
-    this.fx.banner(title, CHARS[this.p1Id].name, n2);
+    this.fx.banner(title, CHARS[this.p1Id].name, CHARS[this.p2Id].name);
   }
 
   newRally() {
@@ -698,6 +697,7 @@ class Match {
 
   point(side) {
     if (!this.rallyLive) return;
+    if (this.machine) return this.machine.landed(side);
     SFX.play('ding');
     this.rallyLive = false;
     if (side === 1) {
@@ -722,6 +722,7 @@ class Match {
       return;
     }
     if (this.score1 >= WIN) {
+      this.results[this.round - 1] = [this.score1, this.score2];
       if (this.round === 5) G.setTimeout(() => { G.pauseAllowed = false; this.hooks.champion(this); }, 1500);
       else this.hooks.matchOver(this, 'won');
       this.over = true;
@@ -742,6 +743,7 @@ class Match {
     if (this.p1) this.p1.update(dt);
     if (this.p2) this.p2.update(dt);
     if (this.shuttle) this.shuttle.update(dt);
+    if (this.machine) this.machine.update(dt);
     if (!this.over) this.status = this.score1 + ' - ' + this.score2;
     if (this.celebrating && G.chance(70)) this.fx.confetti();
   }
@@ -757,6 +759,168 @@ class Match {
     this.net.dispose();
     G.updates.length = 0;
     G.clearTimers();
+  }
+}
+
+/* ======================================================================== */
+/*                       Training: the shot machine                         */
+/* ======================================================================== */
+// Not part of the original game. A launcher on the right-hand side feeds the player one shot
+// at a time. It ticks from Match.update and keeps re-firing the same shuttle, so it adds
+// nothing to the shared update list.
+const MACHINE = { x: 548, y: 222, barrel: 30 }; // head centre and barrel length
+const MACHINE_REST = 1.0;   // s between a landing and picking the next shot
+const MACHINE_AIM = 0.45;   // s the barrel takes to swing onto the next shot
+// Shot families: barrel direction (deg, 0 = up, negative = towards the player), where on the
+// player's side the shot should land and the power band to search (only smashes are fast enough
+// to catch fire). The exact power is found by flying candidate shots.
+const MACHINE_SHOTS = {
+  clear: { weight: 25, dir: [-36, -52], land: [50, 150], power: [250, 1600] },
+  lob: { weight: 20, dir: [-25, -55], land: [140, 235], power: [250, 1600] },
+  drop: { weight: 20, dir: [-50, -85], land: [225, 290], power: [250, 1600] },
+  drive: { weight: 20, dir: [-82, -96], land: [70, 220], power: [250, 1600] },
+  smash: { weight: 15, dir: [-104, -116], land: [60, 220], power: [1650, 2100] },
+};
+
+class ShotMachine {
+  constructor(match) {
+    this.m = match;
+    this.aim = -40;         // barrel direction, eased onto the next shot
+    this.aimFrom = -40;
+    this.aimT = 0;
+    this.next = null;       // shot being aimed: { name, dir, power }
+    this.wait = 1.8;        // s until the next shot is picked
+    this.recoil = 0;
+    this.spin = 0;          // feed wheel angle (drawing only)
+    this.lastFire = 0;
+    this.returned = 0;
+    this.missed = 0;
+    this.streak = 0;
+    this.best = 0;
+    this.spent = [];        // shuttles lying on the floor
+    this.pops = [];         // floating "Nice!" / "Miss" labels
+    this.showTrail = false; // T: draw the predicted flight and landing spot
+    try { this.showTrail = localStorage.getItem('shuttlesticks.trail') === '1'; } catch (e) { /* storage blocked */ }
+  }
+
+  toggleTrail() {
+    this.showTrail = !this.showTrail;
+    try { localStorage.setItem('shuttlesticks.trail', this.showTrail ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  }
+
+  muzzle(dir) {
+    const r = ((dir - 90) / 180) * Math.PI;
+    return [MACHINE.x + Math.cos(r) * MACHINE.barrel, MACHINE.y + Math.sin(r) * MACHINE.barrel];
+  }
+
+  // Fly candidate shots with the same prediction the AI uses and keep ones that clear the net
+  // and land in the family's zone without touching the back wall.
+  plan(name) {
+    const f = MACHINE_SHOTS[name];
+    for (let tries = 0; tries < 12; tries++) {
+      const dir = G.rand(f.dir[1], f.dir[0]);
+      const [mx, my] = this.muzzle(dir);
+      const r = ((dir - 90) / 180) * Math.PI;
+      const ok = [];
+      for (let p = f.power[0]; p <= f.power[1]; p += 20) {
+        let prevX = mx, netY = null, wall = false, top = my;
+        const x = Shuttle.predictLanding(mx, my, Math.cos(r) * p, Math.sin(r) * p, (px, py) => {
+          if (prevX > G.NET_X && px <= G.NET_X) netY = py;
+          if (px <= G.WALL) wall = true;
+          if (py < top) top = py;
+          prevX = px;
+        });
+        if (netY === null || netY > G.NET_TOP.t - 8 || wall || top < -150) continue;
+        if (x >= f.land[0] && x <= f.land[1]) ok.push(p);
+      }
+      if (ok.length) return { name, dir, power: G.pick(ok) };
+    }
+    return null;
+  }
+
+  pick() {
+    const names = Object.keys(MACHINE_SHOTS);
+    let roll = G.rand(0, names.reduce((a, n) => a + MACHINE_SHOTS[n].weight, 0));
+    let name = names[names.length - 1];
+    for (const n of names) {
+      roll -= MACHINE_SHOTS[n].weight;
+      if (roll <= 0) { name = n; break; }
+    }
+    return this.plan(name) || this.plan('lob');
+  }
+
+  fire() {
+    const m = this.m;
+    const shot = this.next;
+    this.next = null;
+    const [mx, my] = this.muzzle(shot.dir);
+    const s = m.shuttle;
+    if (s) {
+      if (s.y >= G.GROUND - 1) {
+        this.spent.push({ x: s.x, r: G.rand(70, 100) * (G.chance(50) ? 1 : -1) });
+        if (this.spent.length > 14) this.spent.shift();
+      }
+      s.x = G.tw(mx);
+      s.y = G.tw(my);
+      if (s.trail) s.trail.lastX = s.trail.lastY = null; // no fire smeared across the teleport
+    } else {
+      m.spawnShuttle(mx, my);
+    }
+    m.rallyLive = true;
+    m.shuttle.hit(shot.power, shot.dir, 'machine');
+    m.lastHitter = this;
+    this.lastFire = G.clock;
+    this.recoil = 1;
+  }
+
+  landed(side) {
+    const m = this.m;
+    const x = m.shuttle.x;
+    m.rallyLive = false;
+    if (side === 1 && m.lastHitter === m.p1) {
+      this.returned++;
+      this.streak++;
+      this.best = Math.max(this.best, this.streak);
+      SFX.play('ding');
+      this.pop(x, this.streak >= 3 ? this.streak + ' in a row!' : 'Nice!', '#7bed9f');
+    } else if (side === 2) {
+      this.missed++;
+      this.streak = 0;
+      this.pop(x, 'Miss', '#ff6b6b');
+    }
+    m.score1 = this.returned;
+    m.score2 = this.missed;
+    this.wait = MACHINE_REST;
+  }
+
+  pop(x, text, color) {
+    this.pops.push({ x: Math.max(60, Math.min(G.W - 60, x)), text, color, age: 0 });
+  }
+
+  update(dt) {
+    const m = this.m;
+    this.recoil = Math.max(0, this.recoil - dt * 5);
+    this.spin += dt * (this.next ? 30 : 4);
+    for (const p of this.pops) p.age += dt;
+    if (this.pops.length && this.pops[0].age > 1.2) this.pops.shift();
+    if (m.rallyLive) {
+      // a shuttle that never comes down (it always should) doesn't stall the session
+      if (G.clock - this.lastFire > 9000) { m.rallyLive = false; this.wait = 0.3; }
+      return;
+    }
+    if (!this.next) {
+      this.wait -= dt;
+      if (this.wait <= 0) {
+        this.next = this.pick();
+        this.aimFrom = this.aim;
+        this.aimT = 0;
+      }
+      return;
+    }
+    this.aimT += dt;
+    const u = Math.min(1, this.aimT / MACHINE_AIM);
+    this.aim = this.aimFrom + (this.next.dir - this.aimFrom) * u * u * (3 - 2 * u);
+    if (this.aimT >= MACHINE_AIM + 0.12) this.fire();
   }
 }
 
@@ -906,4 +1070,6 @@ const FIRE_COOL = 1.4; // heat lost per second once the shot slows down
 window.Shuttle = Shuttle;
 window.Player = Player;
 window.Match = Match;
+window.ShotMachine = ShotMachine;
+window.MACHINE = MACHINE;
 window.FX = FX;

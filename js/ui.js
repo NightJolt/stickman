@@ -3,6 +3,7 @@
 const UI = (() => {
   const { rr, text } = R;
   const SAVE_KEY = 'shuttlesticks.unlock';
+  const CUP = 'Feather Cup';
   let screen = null;
   let fade = { a: 0, dir: 0, then: null };
   let time = 0;
@@ -42,7 +43,7 @@ const UI = (() => {
       ctx.lineWidth = 2;
       ctx.strokeStyle = b.primary ? '#7a4f00' : 'rgba(255,255,255,0.25)';
       ctx.stroke();
-      text(ctx, b.label, b.x + b.w / 2, b.y + b.h / 2 + 1, b.size || 17, b.primary ? '#2b1d00' : '#ffffff');
+      text(ctx, typeof b.label === 'function' ? b.label() : b.label, b.x + b.w / 2, b.y + b.h / 2 + 1, b.size || 17, b.primary ? '#2b1d00' : '#ffffff');
       ctx.restore();
     });
   }
@@ -67,10 +68,11 @@ const UI = (() => {
         SFX.music('title');
         G.pauseAllowed = false;
         s.buttons = [
-          btn('Tournament', 230, 236, 180, 44, () => go(select1P()), { primary: true, kbd: true }),
-          btn('2 Players', 230, 290, 180, 40, () => go(select2P()), { kbd: true }),
-          btn('How to Play', 230, 340, 180, 40, () => go(howTo()), { kbd: true }),
-          btn(SFX.muted ? 'Sound: off' : 'Sound: on', 540, 386, 86, 28, () => { SFX.toggleMute(); s.buttons[3].label = SFX.muted ? 'Sound: off' : 'Sound: on'; }, { size: 12 }),
+          btn('Tournament', 230, 212, 180, 42, () => go(select1P()), { primary: true, kbd: true }),
+          btn('Training', 230, 262, 180, 38, () => go(select1P(null, true)), { kbd: true }),
+          btn('2 Players', 230, 306, 180, 38, () => go(select2P()), { kbd: true }),
+          btn('How to Play', 230, 350, 180, 38, () => go(howTo()), { kbd: true }),
+          btn(() => (SFX.muted ? 'Sound: off' : 'Sound: on'), 540, 386, 86, 28, () => SFX.toggleMute(), { size: 12 }),
         ];
       },
       draw(ctx, scale) {
@@ -120,8 +122,7 @@ const UI = (() => {
         const L = [
           ['Move', '← →  or  A D'],
           ['Jump', '↑  or  W'],
-          ['Swing', '↓, S or Space  (hold for full power)'],
-          ['Power swings', 'J strong   ·   K medium   ·   L soft'],
+          ['Swing', '↓, S or Space'],
           ['Pause / Menu', 'P   ·   Esc          Sound: M'],
         ];
         L.forEach(([a, b], i) => {
@@ -141,12 +142,12 @@ const UI = (() => {
   }
 
   /* ======================================================== SELECT (tournament) */
-  function select1P() {
-    let sel = 0;
+  function select1P(pick, training) {
     const unlocked = unlockedSlots();
+    let sel = Math.max(0, SELECT_1P.indexOf(pick));
     const tiles = SELECT_1P.map((id, i) => ({ id, i, x: 18 + (i % 6) * 70, y: 54 + Math.floor(i / 6) * 84, w: 64, h: 78, locked: !unlocked.includes(i) }));
     const choose = (i) => { if (!tiles[i].locked) { sel = i; SFX.play('click'); } };
-    const start = () => go(briefing(SELECT_1P[sel], null));
+    const start = () => go(training ? briefing(SELECT_1P[sel], null, true) : bracketScreen(SELECT_1P[sel]));
     const s = {
       enter() {
         s.buttons = [
@@ -176,7 +177,7 @@ const UI = (() => {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
         ctx.fillRect(0, 0, G.W, G.H);
-        text(ctx, 'Choose your player', 222, 30, 22, '#ffd166');
+        text(ctx, training ? 'Training: pick a player' : 'Choose your player', 222, 30, 22, '#ffd166');
         for (const t of tiles) {
           const on = t.i === sel;
           ctx.save();
@@ -250,6 +251,220 @@ const UI = (() => {
     ctx.restore();
   }
 
+  /* ======================================================== BRACKET */
+  // Stepladder bracket climbing to the cup: the player enters bottom-left, each round's
+  // opponent drops in from above, and every win moves the player one column up and right.
+  const BK = { x0: 12, colW: 114, w: 100, h: 38, base: 296, gap: 56 };
+  const bkX = (k) => BK.x0 + k * BK.colW;
+  const slotY = (k) => BK.base - (k * BK.gap) / 2; // the player's slot in column k
+  const oppY = (k) => slotY(k) - BK.gap;          // round k+1's opponent
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const ADV = { strike: 0.35, path: 0.6, pathLen: 0.55, pop: 1.15 }; // win animation timing (s)
+
+  // stroke the first fraction f of a polyline
+  function polyPart(ctx, pts, f) {
+    let left = 0;
+    for (let i = 1; i < pts.length; i++) left += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    left *= f;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length && left > 0; i++) {
+      const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+      const d = Math.hypot(bx - ax, by - ay);
+      const u = Math.min(1, left / d);
+      ctx.lineTo(ax + (bx - ax) * u, ay + (by - ay) * u);
+      left -= d;
+    }
+    ctx.stroke();
+  }
+
+  function fitText(ctx, str, x, y, size, color, maxW) {
+    ctx.font = `bold ${size}px ${R.FONT}`;
+    while (size > 8 && ctx.measureText(str).width > maxW) ctx.font = `bold ${(size -= 0.5)}px ${R.FONT}`;
+    text(ctx, str, x, y, size, color, 'left');
+    return ctx.measureText(str).width;
+  }
+
+  // o: { kind: 'player' | 'opp' | 'beaten' | 'tbd', sub, hot, strike (0-1), pop (0-1) }
+  function bkCard(ctx, id, x, y, o) {
+    const { w, h } = BK;
+    ctx.save();
+    if (o.pop !== undefined) {
+      if (o.pop <= 0) { ctx.restore(); return; }
+      const u = clamp01(o.pop);
+      const sc = u < 1 ? 0.6 + 0.4 * u + Math.sin(u * Math.PI) * 0.18 : 1;
+      ctx.translate(x + w / 2, y + h / 2);
+      ctx.scale(sc, sc);
+      ctx.translate(-x - w / 2, -y - h / 2);
+      ctx.globalAlpha *= clamp01(u * 3);
+    }
+    if (o.kind === 'tbd') {
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1.5;
+      rr(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 7);
+      ctx.stroke();
+      text(ctx, '?', x + w / 2, y + h / 2 + 1, 16, 'rgba(255,255,255,0.3)');
+      ctx.restore();
+      return;
+    }
+    const d = CHARS[id];
+    const beaten = o.kind === 'beaten';
+    if (o.kind === 'opp' && !o.hot) ctx.globalAlpha *= 0.62;
+    ctx.fillStyle = o.kind === 'player' ? '#2c4675' : beaten ? '#171e32' : '#22314f';
+    rr(ctx, x, y, w, h, 7);
+    ctx.fill();
+    if (o.hot) {
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = `rgba(255,209,102,${0.55 + 0.45 * Math.sin(time * 5)})`;
+    } else {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = o.kind === 'player' ? 'rgba(255,209,102,0.7)' : 'rgba(255,255,255,0.16)';
+    }
+    ctx.stroke();
+    // portrait: head and shoulders over the character's colour
+    ctx.save();
+    if (beaten) ctx.globalAlpha *= 0.45;
+    rr(ctx, x + 4, y + 4, 26, h - 8, 5);
+    ctx.fillStyle = d.color + '55';
+    ctx.fill();
+    ctx.clip();
+    R.figure(ctx, id, x + 17, y + 15 + R.headHeight(id) * 0.66, 0.66, { t: o.hot || o.kind === 'player' ? time : 0 });
+    ctx.restore();
+    const nameW = fitText(ctx, d.name, x + 35, y + 14, 11, beaten ? 'rgba(255,255,255,0.45)' : o.kind === 'player' ? '#ffd166' : '#ffffff', w - 39);
+    text(ctx, o.sub || '', x + 35, y + 27, 9, beaten ? '#e17070' : '#9fb3d1', 'left', 'normal');
+    if (beaten && o.strike > 0) {
+      ctx.strokeStyle = '#ff6b6b';
+      ctx.lineWidth = 1.5;
+      R.line(ctx, x + 33, y + 14, x + 33 + (nameW + 4) * clamp01(o.strike), y + 14);
+    }
+    ctx.restore();
+  }
+
+  function bkTrophy(ctx, cx, cy, lit) {
+    ctx.save();
+    ctx.globalAlpha *= lit ? 1 : 0.4;
+    ctx.translate(cx, cy);
+    ctx.scale(0.62, 0.62);
+    trophy(ctx, 0, 14);
+    ctx.restore();
+  }
+
+  // st: { p1, won (rounds won), results, cur (round being or about to be played, 0 = none),
+  //       since (s since the latest win, animates it; omit for a static bracket), panel: 'next' | 'now', score }
+  function drawBracket(ctx, st) {
+    const ladder = ladderFor(st.p1);
+    const { w, h } = BK;
+    const since = st.since === undefined ? 99 : st.since;
+    const latest = st.won - 1; // column whose win is animating
+    const strikeU = clamp01((since - ADV.strike) / 0.25);
+    const pathU = clamp01((since - ADV.path) / ADV.pathLen);
+    const popU = clamp01((since - ADV.pop) / 0.28);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let k = 0; k < 5; k++) {
+      const ex = bkX(k) + w + 7;
+      const top = oppY(k) + h / 2, bot = slotY(k) + h / 2, mid = (top + bot) / 2;
+      const nx = k < 4 ? bkX(k + 1) : bkX(5);
+      const pPath = [[bkX(k) + w, bot], [ex, bot], [ex, mid], [nx, mid]];
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      polyPart(ctx, [[bkX(k) + w, top], [ex, top], [ex, mid]], 1);
+      polyPart(ctx, pPath, 1);
+      if (k < st.won) {
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#ffd166';
+        polyPart(ctx, pPath, k === latest ? pathU : 1);
+      }
+      if (st.cur === k + 1) {
+        ctx.fillStyle = '#ffd166';
+        ctx.beginPath();
+        ctx.arc(ex, mid, 9, 0, Math.PI * 2);
+        ctx.fill();
+        text(ctx, 'VS', ex, mid + 0.5, 8, '#2b1d00', 'center', '900');
+      }
+      text(ctx, ROUND_NAMES[k], bkX(k) + w / 2, oppY(k) - 9, 10, st.cur === k + 1 ? '#ffd166' : '#9fb3d1');
+      // the player's slot
+      if (k === 0) bkCard(ctx, st.p1, bkX(0), slotY(0), { kind: 'player', sub: 'You', hot: st.cur === 1 });
+      else if (k <= st.won) {
+        const r = st.results[k - 1];
+        bkCard(ctx, st.p1, bkX(k), slotY(k), {
+          kind: 'player', sub: r ? `Won ${r[0]} – ${r[1]}` : 'Won', hot: st.cur === k + 1, pop: k === st.won ? popU : undefined,
+        });
+        if (k === st.won && popU < 1) bkCard(ctx, null, bkX(k), slotY(k), { kind: 'tbd', pop: 1 - popU * 3 });
+      } else bkCard(ctx, null, bkX(k), slotY(k), { kind: 'tbd' });
+      // the opponent
+      if (k < st.won) bkCard(ctx, ladder[k], bkX(k), oppY(k), { kind: 'beaten', sub: 'Knocked out', strike: k === latest ? strikeU : 1 });
+      else bkCard(ctx, ladder[k], bkX(k), oppY(k), { kind: 'opp', sub: st.cur === k + 1 ? (st.panel === 'now' ? 'Playing now' : 'Up next') : 'Waiting', hot: st.cur === k + 1 });
+    }
+    // the cup
+    const cx = bkX(5) + 26, cy = slotY(5) + h / 2;
+    text(ctx, 'Champion', cx, cy - 37, 10, st.won >= 5 ? '#ffd166' : '#9fb3d1');
+    ctx.fillStyle = st.won >= 5 ? '#2c4675' : '#1a2238';
+    rr(ctx, cx - 26, cy - 27, 52, 54, 9);
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = st.won >= 5 ? '#ffd166' : 'rgba(255,255,255,0.16)';
+    ctx.stroke();
+    bkTrophy(ctx, cx, cy, st.won >= 5);
+    // match card for the round at hand
+    const opp = st.cur ? ladder[st.cur - 1] : null;
+    if (opp) {
+      const px = 12, py = 64, pw = 288, ph = 98;
+      ctx.fillStyle = 'rgba(20,30,52,0.92)';
+      rr(ctx, px, py, pw, ph, 12);
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,209,102,0.35)';
+      ctx.stroke();
+      text(ctx, (st.panel === 'now' ? 'NOW PLAYING' : 'UP NEXT') + '  ·  ' + ROUND_NAMES[st.cur - 1], px + 14, py + 14, 10, '#ffd166', 'left');
+      ctx.save();
+      rr(ctx, px + 2, py + 2, pw - 4, ph - 4, 10);
+      ctx.clip();
+      R.figure(ctx, st.p1, px + 44, py + ph - 6, 0.68, { t: time });
+      R.figure(ctx, opp, px + pw - 44, py + ph - 6, 0.68, { t: time, flip: true });
+      ctx.restore();
+      text(ctx, CHARS[st.p1].name, px + pw / 2, py + 40, 14, '#ffffff');
+      text(ctx, st.panel === 'now' ? st.score : 'vs', px + pw / 2, py + 58, st.panel === 'now' ? 15 : 11, st.panel === 'now' ? '#ffd166' : '#9fb3d1');
+      text(ctx, CHARS[opp].name, px + pw / 2, py + 76, 14, '#ffffff');
+    }
+    ctx.restore();
+  }
+
+  // the empty arena, dimmed, so the match underneath doesn't show through
+  function bracketBackdrop(ctx, scale) {
+    R.background(ctx, scale);
+    ctx.fillStyle = 'rgba(8,12,26,0.84)';
+    ctx.fillRect(0, 0, G.W, G.H);
+  }
+
+  function bracketScreen(p1) {
+    const start = () => go(briefing(p1, null));
+    const back = () => go(select1P(p1));
+    const s = {
+      enter() {
+        s.buttons = [
+          btn('Back', 404, 364, 90, 40, back),
+          btn('Start', 504, 364, 124, 40, start, { primary: true }),
+        ];
+      },
+      key(code) {
+        if (code === G.KEY.ENTER || code === G.KEY.SPACE) start();
+        else if (code === G.KEY.ESC) back();
+      },
+      draw(ctx, scale) {
+        bracketBackdrop(ctx, scale);
+        text(ctx, CUP, 320, 28, 26, '#ffd166', 'center', '900', '#1b1b24', 6);
+        text(ctx, 'Five straight wins take the cup', 320, 51, 12, '#c9d6ee', 'center', 'normal');
+        drawBracket(ctx, { p1, won: 0, results: [], cur: 1, panel: 'next' });
+        text(ctx, 'Lose a match and you replay that round.', 14, 384, 11, 'rgba(255,255,255,0.5)', 'left', 'normal');
+        drawButtons(ctx, s.buttons);
+      },
+    };
+    return s;
+  }
+
   /* ======================================================== SELECT (two players) */
   function select2P() {
     const picks = [];
@@ -320,10 +535,10 @@ const UI = (() => {
   }
 
   /* ======================================================== BRIEFING */
-  function briefing(p1, p2) {
+  function briefing(p1, p2, training) {
     const versus = !!p2;
     const kind = CHARS[p1].kind;
-    const start = () => go(playScreen(versus ? 'versus' : 'solo', p1, p2));
+    const start = () => go(playScreen(versus ? 'versus' : training ? 'training' : 'solo', p1, p2));
     const s = {
       enter() {
         SFX.music('game');
@@ -349,10 +564,16 @@ const UI = (() => {
           note = 'You go wherever the cursor goes, as long as you stay on your side.\nSwing as the shuttle reaches you. Early = lob, late = smash.';
         } else {
           title = CHARS[p1].name;
-          rows = [['Move', '← →  or  A D'], ['Jump', '↑  or  W'], ['Swing', '↓, S or Space  (hold = full power)'], ['Power swings', 'J strong  ·  K medium  ·  L soft']];
+          rows = [['Move', '← →  or  A D'], ['Jump', '↑  or  W'], ['Swing', '↓, S or Space']];
           note = kind === 'hover'
             ? 'Your cloud keeps you floating just above the floor,\nand your serve pops straight up out of it.'
-            : 'Swing early for a high lob, late for a steep smash.\nTap for a soft touch, hold for full power.';
+            : 'Swing early for a high lob, late for a steep smash.';
+        }
+        if (training) {
+          title = 'Training  ·  ' + CHARS[p1].name;
+          rows = kind === 'jet' ? [rows[0], rows[1]] : rows;
+          rows.push(['Shot trail', 'T  (on / off)']);
+          note = 'It feeds you clears, lobs, drops, drives and smashes.\nThe trail shows where each shot is heading and where it will land.';
         }
         text(ctx, title, 320, 64, 28, '#ffd166');
         rows.forEach(([a, b], i) => {
@@ -393,11 +614,13 @@ const UI = (() => {
         const K = G.KEY;
         if (code === K.ESC) { SFX.play('thud'); go(titleScreen()); return; }
         if (code === K.P) { G.togglePause(); return; }
+        if (code === K.T && match && match.machine) { match.machine.toggleTrail(); SFX.play('click'); return; }
         if (overlay && !overlay.fading && code === K.ENTER) overlay.buttons[0].onClick();
       },
       mouseDown() { if (match && !overlay) match.mouseDown(); },
       tick(dt) {
         if (!overlay) return;
+        if (overlay.kind === 'won' && !overlay.popped && time - overlay.t0 >= ADV.pop) { overlay.popped = true; SFX.play('pop'); }
         if (overlay.fading) {
           overlay.alpha -= 4.5 * dt;
           if (overlay.alpha <= 0) { overlay = null; }
@@ -408,13 +631,18 @@ const UI = (() => {
       draw(ctx, scale) {
         if (!match) return;
         R.scene(ctx, match, scale);
-        if (G.paused) {
+        if (G.paused && match.mode === 'solo' && !match.over) {
+          bracketBackdrop(ctx, scale);
+          text(ctx, 'PAUSED', 320, 28, 26, '#ffffff', 'center', '900', '#1b1b24', 6);
+          text(ctx, 'P to resume  ·  Esc for menu  ·  M sound', 320, 51, 12, '#c9d6ee', 'center', 'normal');
+          drawBracket(ctx, { p1: match.p1Id, won: match.round - 1, results: match.results, cur: match.round, panel: 'now', score: match.score1 + ' – ' + match.score2 });
+        } else if (G.paused) {
           ctx.fillStyle = 'rgba(8,12,26,0.6)';
           ctx.fillRect(0, 0, G.W, G.H);
           text(ctx, 'PAUSED', 320, 190, 40, '#ffffff', 'center', '900', '#1b1b24', 8);
           text(ctx, 'P to resume  ·  Esc for menu  ·  M sound', 320, 232, 14, '#c9d6ee', 'center', 'normal');
         }
-        if (overlay) drawOverlay(ctx);
+        if (overlay) drawOverlay(ctx, scale);
       },
     };
 
@@ -422,7 +650,7 @@ const UI = (() => {
       const menu = () => go(titleScreen());
       const close = (fn) => () => { overlay.fading = true; fn(); };
       let buttons;
-      if (kind === 'won') buttons = [btn('Next Round', 236, 236, 168, 42, close(() => match.nextLevel()), { primary: true }), btn('Menu', 270, 288, 100, 34, menu)];
+      if (kind === 'won') buttons = [btn('Next Round', 504, 364, 124, 40, close(() => match.nextLevel()), { primary: true }), btn('Menu', 404, 364, 90, 40, menu)];
       else if (kind === 'versus') buttons = [btn('Rematch', 236, 236, 168, 42, close(() => match.resetLevel()), { primary: true }), btn('Menu', 270, 288, 100, 34, menu)];
       else if (kind === 'lost') buttons = [btn('Try Again', 236, 250, 168, 42, close(() => match.resetLevel()), { primary: true }), btn('Menu', 270, 302, 100, 34, menu)];
       else {
@@ -432,39 +660,46 @@ const UI = (() => {
         buttons = [btn('Menu', 250, 364, 140, 40, menu, { primary: true })];
         buttons.unlockText = lv <= UNLOCK_TIERS.length - 1 ? 'New players unlocked!' : 'You ruled the league. Again.';
       }
-      overlay = { kind, alpha: 0, fading: false, buttons };
+      // snapshot the result: Next Round / Try Again / Rematch reset the match while this fades out
+      const res = { round: match.round, opp: match.p2Id, s1: match.score1, s2: match.score2, flawless: match.flawless, status: match.status };
+      overlay = { kind, alpha: 0, fading: false, buttons, res, t0: time, popped: false };
     }
 
-    function drawOverlay(ctx) {
+    function drawOverlay(ctx, scale) {
       const o = overlay;
       ctx.save();
       ctx.globalAlpha = Math.max(0, Math.min(1, o.alpha));
-      if (o.kind === 'won' || o.kind === 'versus') {
+      const res = o.res;
+      if (o.kind === 'won') {
+        bracketBackdrop(ctx, scale);
+        const r = res.round;
+        text(ctx, 'You Win!', 320, 28, 26, '#ffd166', 'center', '900', '#1b1b24', 6);
+        text(ctx, (res.flawless ? 'Flawless!  ' : '') + 'Beat ' + CHARS[res.opp].name + ' ' + res.s1 + ' – ' + res.s2, 320, 51, 12, '#c9d6ee', 'center', 'normal');
+        drawBracket(ctx, { p1: match.p1Id, won: r, results: match.results, cur: r + 1, since: time - o.t0, panel: 'next' });
+        const left = 5 - r;
+        text(ctx, left === 1 ? 'One more win for the cup.' : left + ' more wins for the cup.', 14, 384, 11, 'rgba(255,255,255,0.5)', 'left', 'normal');
+      } else if (o.kind === 'versus') {
         ctx.fillStyle = 'rgba(8,12,26,0.82)';
         rr(ctx, 180, 120, 280, 216, 16);
         ctx.fill();
         ctx.strokeStyle = '#ffd166';
         ctx.lineWidth = 2;
         ctx.stroke();
-        const head = o.kind === 'won' ? 'You Win!' : match.status + '!';
-        text(ctx, head, 320, 160, 32, '#ffd166', 'center', '900');
-        const sub = o.kind === 'won'
-          ? (match.flawless ? 'Flawless! ' : '') + 'Next up: ' + ROUND_NAMES[match.round]
-          : 'Final score ' + match.score1 + ' - ' + match.score2;
-        text(ctx, sub, 320, 200, 14, '#dfe7f5', 'center', 'normal');
+        text(ctx, res.status + '!', 320, 160, 32, '#ffd166', 'center', '900');
+        text(ctx, 'Final score ' + res.s1 + ' - ' + res.s2, 320, 200, 14, '#dfe7f5', 'center', 'normal');
       } else if (o.kind === 'lost') {
         ctx.fillStyle = 'rgba(8,12,26,0.88)';
         ctx.fillRect(0, 0, G.W, G.H);
         text(ctx, 'Good Try', 320, 96, 44, '#ffffff', 'center', '900', '#1b1b24', 8);
-        text(ctx, (ROUND_NAMES[match.round - 1] || 'Match') + ':  ' + CHARS[match.p2Id].name + ' wins ' + match.score2 + ' - ' + match.score1, 320, 146, 15, '#c9d6ee', 'center', 'normal');
+        text(ctx, (ROUND_NAMES[res.round - 1] || 'Match') + ':  ' + CHARS[res.opp].name + ' wins ' + res.s2 + ' - ' + res.s1, 320, 146, 15, '#c9d6ee', 'center', 'normal');
         text(ctx, 'Shake it off and run it back.', 320, 172, 13, '#9fb3d1', 'center', 'normal');
         R.figure(ctx, match.p1Id, 130, 360, 1.3, { t: time });
-        R.figure(ctx, match.p2Id, 510, 360, 1.3, { t: time, flip: true });
+        R.figure(ctx, res.opp, 510, 360, 1.3, { t: time, flip: true });
       } else {
         ctx.fillStyle = 'rgba(8,12,26,0.9)';
         ctx.fillRect(0, 0, G.W, G.H);
         text(ctx, 'CHAMPION!', 320, 58, 50, '#ffd166', 'center', '900', '#1b1b24', 10);
-        text(ctx, CHARS[match.p1Id].name + ' wins the Feather Cup.', 320, 102, 16, '#ffffff', 'center', 'bold');
+        text(ctx, CHARS[match.p1Id].name + ' wins the ' + CUP + '.', 320, 102, 16, '#ffffff', 'center', 'bold');
         R.figure(ctx, match.p1Id, 290, 312, 1.45, { t: time, frame: 1 + (Math.floor(time * 30) % RIGS[CHARS[match.p1Id].rig].over.n) });
         trophy(ctx, 392, 300);
         text(ctx, o.buttons.unlockText, 320, 344, 16, '#4cd137', 'center', 'bold');

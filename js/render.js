@@ -358,6 +358,8 @@ const R = (() => {
   };
   BODY.std1 = BODY.std;
   BODY.jet2 = BODY.jet;
+  // head centre above the feet, as figure() places it (flyers are lifted 48 px)
+  const headHeight = (id) => -BODY[CHARS[id].rig].head[1] + (CHARS[id].kind === 'jet' ? 48 : 0);
 
   function legs(ctx, p, B, t) {
     const [hx, hy] = B.hip;
@@ -375,7 +377,8 @@ const R = (() => {
       f1 = [hx - 9 * scale, hy + 21 * scale];
       f2 = [hx + 6 * scale, hy + 23 * scale];
     } else if (p.state === 'forward' || p.state === 'backward') {
-      const ph = t * 15 * (p.state === 'backward' ? -1 : 1);
+      // the planted foot slides back under the hip and the lifted one swings ahead (local +x = facing)
+      const ph = t * 15 * (p.state === 'forward' ? -1 : 1);
       f1 = [hx + Math.sin(ph) * 10 * scale, -Math.max(0, -Math.cos(ph)) * 6 * scale];
       f2 = [hx - Math.sin(ph) * 10 * scale, -Math.max(0, Math.cos(ph)) * 6 * scale];
     } else {
@@ -675,7 +678,7 @@ const R = (() => {
     if (!def.glow) {
       ctx.save();
       ctx.fillStyle = def.color;
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha *= 0.9;
       const w = p.id === 'boris' ? 6.5 : 4.6;
       ctx.beginPath();
       ctx.moveTo(nx - w, ny + 2);
@@ -847,17 +850,192 @@ const R = (() => {
     ctx.restore();
   }
 
+  /* ------------------------------------------------------------ training */
+  // the shot machine: a tripod launcher with a shuttle magazine and a barrel that swings to aim
+  function machine(ctx, mc) {
+    const { x, y } = MACHINE;
+    const hub = 318;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(x, 401, 36, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#5a616b';
+    ctx.lineWidth = 2.4;
+    line(ctx, x, hub, x + 8, 397);
+    ctx.strokeStyle = '#3a3f47';
+    ctx.lineWidth = 3.2;
+    line(ctx, x, hub, x - 31, 399);
+    line(ctx, x, hub, x + 31, 399);
+    ctx.fillStyle = '#2a2e35';
+    for (const fx of [x - 31, x + 31]) { rr(ctx, fx - 5, 397, 10, 4, 2); ctx.fill(); }
+    // mast
+    ctx.fillStyle = '#c9ced6';
+    rr(ctx, x - 3, y + 8, 6, hub - y - 4, 2);
+    ctx.fill();
+    ctx.fillStyle = '#8a929c';
+    ctx.fillRect(x + 1, y + 10, 1.6, hub - y - 8);
+    ctx.fillStyle = '#3a3f47';
+    rr(ctx, x - 6, hub - 6, 12, 10, 3);
+    ctx.fill();
+    // magazine of shuttles standing on the head
+    const mx = x + 5;
+    ctx.fillStyle = 'rgba(200,225,255,0.16)';
+    rr(ctx, mx - 7, y - 76, 14, 66, 5);
+    ctx.fill();
+    for (let i = 0; i < 6; i++) {
+      ctx.save();
+      ctx.translate(mx, y - 21 - i * 9);
+      ctx.rotate(Math.PI);
+      ctx.scale(0.8, 0.8);
+      drawShuttleShape(ctx);
+      ctx.restore();
+    }
+    ctx.strokeStyle = 'rgba(220,235,255,0.55)';
+    ctx.lineWidth = 1.2;
+    rr(ctx, mx - 7, y - 76, 14, 66, 5);
+    ctx.stroke();
+    ctx.fillStyle = '#3a3f47';
+    rr(ctx, mx - 8.5, y - 80, 17, 6, 2);
+    ctx.fill();
+    // barrel (pivots in the head, kicks back when it fires)
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((mc.aim * Math.PI) / 180);
+    const kick = mc.recoil * mc.recoil * 6;
+    const L = MACHINE.barrel;
+    ctx.fillStyle = '#c9ced6';
+    rr(ctx, -4.5, -L + kick, 9, L - 2, 3);
+    ctx.fill();
+    ctx.fillStyle = '#8a929c';
+    ctx.fillRect(1.5, -L + 3 + kick, 2, L - 8);
+    ctx.fillStyle = '#ff8c42';
+    rr(ctx, -5.5, -L - 1 + kick, 11, 4.5, 2);
+    ctx.fill();
+    if (mc.recoil > 0.4) {
+      ctx.fillStyle = `rgba(255,255,255,${(mc.recoil - 0.4) * 1.2})`;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc((i - 1) * 5, -L - 6 - i * 3 * (1 - mc.recoil), 3 + (1 - mc.recoil) * 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    // head housing with the spinning feed wheel
+    ctx.fillStyle = '#2f3b52';
+    rr(ctx, x - 19, y - 13, 40, 26, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ff8c42';
+    rr(ctx, x - 19, y + 4, 40, 4, 2);
+    ctx.fill();
+    ctx.fillStyle = '#1b2233';
+    ctx.beginPath();
+    ctx.arc(x + 7, y - 3, 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#8fa3c0';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 3; i++) {
+      const a = mc.spin + (i * Math.PI * 2) / 3;
+      line(ctx, x + 7, y - 3, x + 7 + Math.cos(a) * 5.5, y - 3 + Math.sin(a) * 5.5);
+    }
+    // status light: amber while aiming, green while the shot is out
+    const aiming = !!mc.next;
+    ctx.fillStyle = aiming ? (Math.sin(G.clock / 60) > 0 ? '#ffb142' : '#7a5410') : '#2ed573';
+    ctx.beginPath();
+    ctx.arc(x - 11, y - 4, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // shuttles the machine has already fired, lying where they came down
+  function spent(ctx, list) {
+    for (const sp of list) {
+      ctx.save();
+      ctx.globalAlpha *= 0.85;
+      ctx.translate(sp.x + G.LAYER_DX, 396);
+      ctx.rotate((sp.r * Math.PI) / 180);
+      drawShuttleShape(ctx);
+      ctx.restore();
+    }
+  }
+
+  // T in training: where the shuttle is heading and where it will land, from the same
+  // prediction the computer opponent and the debug overlay use
+  function flightPath(ctx, m) {
+    const s = m.shuttle;
+    if (!m.machine.showTrail || G.debug || !s || !m.rallyLive) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    const end = Shuttle.predictLanding(s.x, s.y, s.dx, s.dy, (x, y) => ctx.lineTo(x, y));
+    ctx.setLineDash([5, 4]);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = '#ff4d4d';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(end, G.GROUND, 9, 2.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#ff4d4d';
+    ctx.beginPath();
+    ctx.ellipse(end, G.GROUND, 3, 1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function pops(ctx, mc) {
+    for (const p of mc.pops) {
+      const u = p.age / 1.2;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - u * u);
+      text(ctx, p.text, p.x, 372 - u * 40, 15, p.color, 'center', '900', 'rgba(0,0,0,0.55)', 4);
+      ctx.restore();
+    }
+  }
+
+  function trainingHud(ctx, m) {
+    const mc = m.machine;
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,14,28,0.72)';
+    rr(ctx, 236, 8, 168, 40, 10);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    text(ctx, m.status, 320, 25, 24, '#ffffff');
+    text(ctx, `streak ${mc.streak}   ·   best ${mc.best}`, 320, 42, 9, '#9fb3d1', 'center', 'bold');
+    text(ctx, CHARS[m.p1Id].name, 226, 28, 12, 'rgba(255,255,255,0.75)', 'right', 'bold', 'rgba(0,0,0,0.5)', 3);
+    text(ctx, 'Shot Machine', 414, 28, 12, 'rgba(255,255,255,0.75)', 'left', 'bold', 'rgba(0,0,0,0.5)', 3);
+    text(ctx, `T  trail ${mc.showTrail ? 'on' : 'off'}     P  pause     Esc  menu`, 320, 415, 10, 'rgba(255,255,255,0.7)', 'center', 'bold', 'rgba(0,0,0,0.5)', 3);
+    ctx.restore();
+  }
+
   function scene(ctx, m, scale) {
     background(ctx, scale);
     effects(ctx, m.fx, 'back');
     net(ctx, m.net);
+    if (m.machine) {
+      spent(ctx, m.machine.spent);
+      machine(ctx, m.machine);
+    }
     if (m.p1) player(ctx, m.p1);
     if (m.p2) player(ctx, m.p2);
+    if (m.machine) flightPath(ctx, m);
     for (const t of m.fx.trails) trail(ctx, t);
     if (m.shuttle) shuttle(ctx, m.shuttle);
     bubble(ctx, m);
     effects(ctx, m.fx, 'front');
-    hud(ctx, m);
+    if (m.machine) {
+      pops(ctx, m.machine);
+      trainingHud(ctx, m);
+    } else hud(ctx, m);
     banner(ctx, m.fx);
     if (G.debug) debug(ctx, m);
   }
@@ -1063,7 +1241,7 @@ const R = (() => {
     if (m.shuttle) dbgShuttle(ctx, m.shuttle);
 
     const s = m.shuttle;
-    const who = (p) => (p === m.p1 ? 'P1' : p === m.p2 ? 'P2' : '-');
+    const who = (p) => (p === m.p1 ? 'P1' : p === m.p2 ? 'P2' : p && p === m.machine ? 'machine' : '-');
     const left = [
       ['DEBUG  ` to hide', '#39ff6a'],
       [['■ racket ', DBG.racket], ['■ reach ', DBG.reach], ['■ cpu swing ', DBG.cpu], ['■ net ', DBG.netBody], ['■ tape', DBG.netTop]],
@@ -1114,6 +1292,6 @@ const R = (() => {
     return d;
   }
 
-  return { rr, text, line, scene, figure, background, drawShuttleShape, FONT, INK };
+  return { rr, text, line, scene, figure, headHeight, background, drawShuttleShape, FONT, INK };
 })();
 window.R = R;

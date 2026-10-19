@@ -9,10 +9,12 @@ reverse-engineered Flash game. No build step, no dependencies: open `index.html`
 |---|---|---|---|
 | Move | ← → / A D | A D | ← → |
 | Jump | ↑ / W | W | ↑ |
-| Swing | ↓ / S / Space (hold = full power), J / K / L = strong / medium / soft | S / Space | ↓ |
+| Swing | ↓ / S / Space | S / Space | ↓ |
 
 Jetpack Jo and Rocket Rae fly with the mouse and swing on click.
-P pauses, Esc returns to the menu, M toggles sound. Add `?unlockall` to the URL to open every character.
+
+Training (from the title screen) puts you against a shot machine that keeps feeding clears, lobs, drops, drives and smashes, and counts your returns, misses and best streak. T toggles the shot trail: the shuttle's predicted flight and landing spot, the same prediction the debug overlay draws. The machine is new to this remake.
+P pauses (in the tournament the pause screen shows the bracket), Esc returns to the menu, M toggles sound. Add `?unlockall` to the URL to open every character.
 
 ` (backtick) toggles the debug overlay: racket boxes (filled while the swing can still hit), the reach and computer-swing polygons, net boxes, court limits, the predicted shuttle path and the AI's landing estimate and target, plus live numbers for the shuttle and both players. The setting is remembered between visits.
 
@@ -23,7 +25,7 @@ P pauses, Esc returns to the menu, M toggles sound. Add `?unlockall` to the URL 
 - Swings: the per-frame racket angle and hitbox for every swing animation, read from the original timelines. Overhead shot angle is racket rotation + 30°, and late contact past 100° gets 1.25× power. Underhand is a fixed 40° lift. Holding the swing button builds power.
 - Serves: serve power and angle, the frame each serve releases on, the service-line clamp, and the floater's pop serve.
 - AI: the target-offset logic, skill rolls, jump and jump-serve choices, the 500 ms swing cooldown, and the round-by-round tuning (speed 1.1 to 1.15, skill 100 to 65).
-- Rules and flow: matches to 7, the winner serves, five tournament rounds with a fixed opponent ladder per character, and unlock tiers of 4, 4, 2 and 2.
+- Rules and flow: matches to 7, the winner serves, five tournament rounds with a fixed opponent ladder per character (except the finals: where the original pitted Zara, Nimbus and Boris against their own mirror, they now face Turbo, Boris and Pogo Pete), and unlock tiers of 4, 4, 2 and 2.
 - Engine timing: integer-millisecond frame timestamps, timeline clips that advance by elapsed time, positions stored in 1/20 px steps, and the original's one-shared-update-list behaviour.
 
 The art, characters, names, text, sound effects and music are original to this project. Nothing was extracted from the SWF except numeric gameplay data (`js/rigs.js`).

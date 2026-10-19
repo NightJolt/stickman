@@ -75,21 +75,23 @@ const UNLOCK_TIERS = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9], [10, 11]];
 // Two-player roster (no mouse flyers)
 const SELECT_2P = ['pip', 'zara', 'boris', 'pogo', 'cubey', 'hank', 'glim', 'nimbus', 'stan', 'turbo'];
 
-// Opponent ladder per player character (rounds 1-5)
+// Opponent ladder per player character (rounds 1-5). Rounds 1-4 follow the original; the original
+// sent Zara, Nimbus and Boris against their own mirror in the final, here they meet another regular.
 const LADDER = {
   jo: ['pip', 'hank', 'glim', 'pogo', 'nimbus'],
   pip: ['zara', 'cubey', 'hank', 'stan', 'glim'],
   pogo: ['boris', 'nimbus', 'stan', 'hank', 'turbo'],
-  zara: ['pip', 'glim', 'pogo', 'cubey', 'zara'],
-  nimbus: ['glim', 'cubey', 'hank', 'pogo', 'nimbus'],
+  zara: ['pip', 'glim', 'pogo', 'cubey', 'turbo'],
+  nimbus: ['glim', 'cubey', 'hank', 'pogo', 'boris'],
   turbo: ['glim', 'nimbus', 'pogo', 'stan', 'cubey'],
-  boris: ['zara', 'glim', 'hank', 'turbo', 'boris'],
+  boris: ['zara', 'glim', 'hank', 'turbo', 'pogo'],
   stan: ['pip', 'boris', 'hank', 'glim', 'cubey'],
   rae: ['nimbus', 'hank', 'pogo', 'cubey', 'glim'],
   hank: ['boris', 'glim', 'cubey', 'stan', 'pogo'],
   cubey: ['nimbus', 'glim', 'hank', 'pogo', 'turbo'],
   glim: ['zara', 'cubey', 'nimbus', 'pogo', 'hank'],
 };
+const ladderFor = (id) => LADDER[id] || ['stan', 'stan', 'stan', 'stan', 'stan'];
 
 const ROUND_NAMES = ['Round 1', 'Round 2', 'Quarter-Finals', 'Semi-Finals', 'Final Match'];
 // Opponent tuning per round: [speed, jump, power, skill]
@@ -103,11 +105,6 @@ const ROUND_AI = [
 
 // Special greeting lines (opponent -> player) shown instead of a random line
 function greetingFor(oppId, playerId) {
-  if (oppId === playerId) {
-    if (oppId === 'nimbus') return '*poof?!*';
-    if (oppId === 'turbo') return 'Vrrr...?!';
-    return 'Nice face. I had it first.';
-  }
   if (oppId === 'pip') return playerId === 'zara' ? 'Can I have your autograph?' : 'Are you a pro?';
   if (oppId === 'zara') {
     if (CHARS[playerId].kind === 'jet') return 'Nice wings. Shame about the pilot.';
@@ -123,6 +120,7 @@ window.SELECT_1P = SELECT_1P;
 window.SELECT_2P = SELECT_2P;
 window.UNLOCK_TIERS = UNLOCK_TIERS;
 window.LADDER = LADDER;
+window.ladderFor = ladderFor;
 window.ROUND_NAMES = ROUND_NAMES;
 window.ROUND_AI = ROUND_AI;
 window.greetingFor = greetingFor;

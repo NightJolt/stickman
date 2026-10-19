@@ -68,6 +68,7 @@
   let frameNo = 0;
   let fpsT = origin, fpsN = 0;
   function loop(now) {
+    requestAnimationFrame(loop); // first, so one bad frame can't stop the game
     fpsN++;
     if (now - fpsT >= 500) {
       G.fps = Math.round((fpsN * 1000) / (now - fpsT));
@@ -91,7 +92,6 @@
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.clearRect(0, 0, G.W, G.H);
     UI.draw(ctx, scale);
-    requestAnimationFrame(loop);
   }
 
   UI.start();
