@@ -94,19 +94,31 @@ const LADDER = {
 const ladderFor = (id) => LADDER[id] || ['stan', 'stan', 'stan', 'stan', 'stan'];
 
 const ROUND_NAMES = ['Round 1', 'Round 2', 'Quarter-Finals', 'Semi-Finals', 'Final Match'];
-// Opponent tuning per round: [speed, jump, power, skill]
+// Computer tuning per tournament round (js/ai.js). speed/jump/power scale the character's own
+// build; react: reaction time (s); aim: footwork error (px, std dev); slip: chance a swing goes a
+// frame early or late; margin: how close over the net tape it will plan a shot (px); aggr: 0 just
+// gets it back high and safe, 1 hunts for the open court; care: how much it allows for its own
+// footwork error when choosing; loose: how far below its best shot it will settle (score units);
+// fumble: chance a swing goes off badly mistimed; flair: extra pull towards jump smashes;
+// jumpServe: % of its short serves that are jump serves; flyer: extra speed against Jetpack Jo
+// (the original sped its computer up 10% to chase her).
 const ROUND_AI = [
-  [1.1, 1, 1, 100],
-  [1.1, 1, 1, 95],
-  [1.1, 1, 1, 85],
-  [1.1, 1, 1, 75],
-  [1.15, 1, 1, 65],
+  { speed: 0.97, jump: 1, power: 1, react: 0.36, aim: 10, slip: 0.28, fumble: 0.12, margin: 15, aggr: 0.2, care: 0.35, loose: 0.22, flair: 0, jumpServe: 0, flyer: 1.1 },
+  { speed: 1.0, jump: 1, power: 1, react: 0.3, aim: 8, slip: 0.2, fumble: 0.09, margin: 12, aggr: 0.35, care: 0.55, loose: 0.18, flair: 0.02, jumpServe: 5, flyer: 1.1 },
+  { speed: 1.04, jump: 1, power: 1, react: 0.26, aim: 6, slip: 0.15, fumble: 0.07, margin: 10, aggr: 0.5, care: 0.7, loose: 0.15, flair: 0.05, jumpServe: 15, flyer: 1.1 },
+  { speed: 1.06, jump: 1, power: 1, react: 0.22, aim: 5.5, slip: 0.12, fumble: 0.06, margin: 9, aggr: 0.6, care: 0.8, loose: 0.12, flair: 0.06, jumpServe: 25, flyer: 1.1 },
+  { speed: 1.1, jump: 1, power: 1, react: 0.19, aim: 4, slip: 0.08, fumble: 0.045, margin: 8, aggr: 0.75, care: 0.9, loose: 0.08, flair: 0.08, jumpServe: 35, flyer: 1.1 },
 ];
-// 1v1 against the computer: each level plays like one tournament round
+// Champion: the same planner with the mistakes taken out (near-instant reactions, exact footwork,
+// no mistimed swings, always the best shot). Its character's speed, jump and power are left as
+// they are. Only offered in 1v1.
+const CHAMPION_AI = { speed: 1, jump: 1, power: 1, react: 0.06, aim: 0.5, slip: 0, fumble: 0, margin: 5, aggr: 1, care: 1, loose: 0.01, flair: 0.1, jumpServe: 50 };
+// 1v1 against the computer: the first three play like tournament rounds
 const CPU_LEVELS = [
-  { name: 'Easy', row: 0 },
-  { name: 'Normal', row: 2 },
-  { name: 'Hard', row: 4 },
+  { name: 'Easy', ai: ROUND_AI[0], note: 'Plays at Round 1 level' },
+  { name: 'Normal', ai: ROUND_AI[2], note: 'Plays at Quarter-Finals level' },
+  { name: 'Hard', ai: ROUND_AI[4], note: 'Plays at Final Match level' },
+  { name: 'Champion', ai: CHAMPION_AI, note: 'No mistakes. No mercy.' },
 ];
 
 // Special greeting lines (opponent -> player) shown instead of a random line
@@ -130,4 +142,5 @@ window.ladderFor = ladderFor;
 window.ROUND_NAMES = ROUND_NAMES;
 window.ROUND_AI = ROUND_AI;
 window.CPU_LEVELS = CPU_LEVELS;
+window.CHAMPION_AI = CHAMPION_AI;
 window.greetingFor = greetingFor;

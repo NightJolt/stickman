@@ -17,14 +17,16 @@ class Shuttle {
     this.dir = 0;
     this.speed = 0;
     this.rotation = 0;
-    this.landX = 0;          // predicted landing x (used by the computer)
+    this.landX = 0;          // predicted landing x
     this.trail = null;
+    this.hits = 0;           // racket contacts (the computer counts shots by it)
   }
 
   // Racket contact: launch at `power` px/s in direction `dir` (deg, 0 = up)
   hit(power, dir, kind) {
     const m = this.m;
     if (!m.rallyLive) return;
+    this.hits++;
     if (!this.trail) this.trail = m.fx.trail(this);
     this.speed = power;
     this.dir = dir;
@@ -77,7 +79,8 @@ class Shuttle {
       this.dy *= 0.3;
       this.dx *= 0.8;
       if (this.dy > -100) this.dy = -100;
-      if (Math.abs(this.dx) < 100) this.dx = G.chance(50) ? -150 : 150;
+      // (a predicted flight keeps rolling the way it was going)
+      if (Math.abs(this.dx) < 100) this.dx = (this.ghost ? this.dx < 0 : G.chance(50)) ? -150 : 150;
       m.net.play();
       return true;
     }
@@ -176,22 +179,9 @@ class Player {
     this.power = 1;
     this.controls = 0;         // 0 = solo keys, 1 = P1 (WASD), 2 = P2 (arrows)
     this.state = 'normal';     // normal | forward | backward | jump
-    this.underShift = 0;       // temporary hitbox y shifts (player-local px)
-    this.cpuShift = 0;
-
-    // computer brain
-    this.skill = 0;
-    this.skillBase = 0;
-    this.overheadChance = 0;
-    this.rollA = 100;
-    this.rollB = 100;
-    this.lastShuttleX = 0;
-    this.goHome = false;
-    this.rallyOverSeen = false;
-    this.lastCpuSwing = 0;
-    this.serveTargetX = 0;
-    this.jumpServe = false;
-    this.serveTriggered = false;
+    this.underShift = 0;       // temporary hitbox y shift (player-local px)
+    this.brain = null;         // computer players: js/ai.js
+    this.dbgTarget = null;
 
     // floaters
     this.bob = 0;
@@ -215,11 +205,6 @@ class Player {
     this.shown = 'over';
     this.setupOverhead();
     this.anim = 0; // visual walk phase
-  }
-
-  setSkill(v) {
-    this.skill = v;
-    this.skillBase = v;
   }
 
   frame() {
@@ -264,19 +249,7 @@ class Player {
     const lineL = G.NET_X - G.SERVE_GAP - 20, lineR = G.NET_X + G.SERVE_GAP + 20;
     if (this.serving && this.scaleX > 0 && this.x > lineL) this.x = lineL;
     if (this.serving && this.scaleX < 0 && this.x < lineR) this.x = lineR;
-    if (this.cpu) {
-      // right-hand-side x; think() mirrors it for a computer player on the left
-      if (G.chance(33)) {
-        this.serveTargetX = G.NET_X + G.SERVE_GAP + 20;
-        this.jumpServe = !G.chance(this.skill);
-      } else if (G.chance(50)) {
-        this.serveTargetX = 526;
-        this.jumpServe = false;
-      } else {
-        this.serveTargetX = 570;
-        this.jumpServe = false;
-      }
-    }
+    if (this.cpu) this.brain.prepareServe();
   }
 
   setupOverhead() {
@@ -303,23 +276,27 @@ class Player {
     this.hitLive = false;
   }
 
-  swing(power = 1) {
+  // `clip` ('over' or 'under') is the computer's pick; players get the swing the shuttle calls for
+  swing(power = 1, clip) {
     if (this.swinging || this.active.cur !== 1) return;
     const m = this.m;
     const s = m.shuttle;
     this.power = power;
     m.sfx('whoosh');
     this.swinging = true;
-    let inReach = false;
-    if (this.dy > -100 && this.inAir) this.underShift += 20;
-    if (!this.serving && s && this.polyHit(this.rig.underHit, this.underShift, s.x, s.y)) inReach = true;
-    if (this.dy > -100 && this.inAir) this.underShift -= 20;
-    if (inReach && (s.dy > 0 || s.y > G.NET_TOP.y)) this.setupUnderhand();
-    let atNet = false;
-    if (this.scaleX > 0 && s && s.x > G.NET_BODY.x - 15) atNet = true;
-    else if (this.scaleX < 0 && s && s.x < G.NET_BODY.x + 15) atNet = true;
-    if (inReach && !this.cpu && atNet) this.setupOverhead();
-    if (inReach && this.cpu && G.chance(this.overheadChance)) this.setupOverhead();
+    if (clip === 'under') this.setupUnderhand();
+    else if (clip === 'over') this.setupOverhead();
+    else {
+      let inReach = false;
+      if (this.dy > -100 && this.inAir) this.underShift += 20;
+      if (!this.serving && s && this.polyHit(this.rig.underHit, this.underShift, s.x, s.y)) inReach = true;
+      if (this.dy > -100 && this.inAir) this.underShift -= 20;
+      if (inReach && (s.dy > 0 || s.y > G.NET_TOP.y)) this.setupUnderhand();
+      let atNet = false;
+      if (this.scaleX > 0 && s && s.x > G.NET_BODY.x - 15) atNet = true;
+      else if (this.scaleX < 0 && s && s.x < G.NET_BODY.x + 15) atNet = true;
+      if (inReach && atNet) this.setupOverhead();
+    }
     this.hitLive = !this.serving;
     this.active.play();
   }
@@ -347,7 +324,6 @@ class Player {
     if (!G.inBox(this.racketBox(), s.x, s.y)) return;
     const f = this.frame();
     this.hitLive = false;
-    this.skill += 7;
     if (this.power > 1) this.power = 1;
     let power, dir;
     if (this.overhead) {
@@ -374,7 +350,7 @@ class Player {
     if (this.kind === 'jet') return this.updateJet(dt);
     this.baseUpdate(dt);
     if (this.kind === 'hover') {
-      if (this.cpu || !this.inAir) {
+      if (!this.inAir) {
         this.bob += this.bobStep * 4;
         if (this.bob > 4) { this.bob = 4; this.bobStep *= -1; }
         if (this.bob < -4) { this.bob = -4; this.bobStep *= -1; }
@@ -409,7 +385,7 @@ class Player {
 
   baseUpdate(dt) {
     const m = this.m;
-    if (this.cpu) this.think(dt);
+    if (this.cpu) this.brain.update(dt);
     else if (this.kind !== 'jet') this.readKeys(dt);
     if (this.inAir) {
       this.dy += G.GRAVITY * dt;
@@ -475,95 +451,6 @@ class Player {
     }
   }
 
-  /* ---- computer player ---- */
-  // The original only ever ran it on the right-hand side. On the left (the title-screen demo) it
-  // reads the court mirrored, so x values below (target, serveTargetX, lastShuttleX) are
-  // right-hand-side coordinates; on the right the mirror is the identity.
-  think() {
-    const m = this.m;
-    const s = m.shuttle;
-    const mid = G.W / 2;
-    const X = this.scaleX > 0 ? (v) => G.W - v : (v) => v;
-    const x = X(this.x), sx = s && X(s.x), landX = s && X(s.landX);
-    let target;
-    if (this.serving) {
-      target = this.serveTargetX;
-    } else if (this.goHome || s === null || m.lastHitter === this || sx < mid) {
-      target = 450;
-    } else if (landX > 450 && sx < 340) {
-      target = 450;
-    } else {
-      let off;
-      if (this.rollA < this.skill) {
-        off = landX < mid + 240 ? 100 - (landX - mid) / 11 : 20;
-      } else {
-        off = 20;
-        if (this.rollB < 50 && landX < mid + 240) off = 70 - (landX - mid) / 11;
-      }
-      if ((this.scaleX > 0 ? m.p2Id : m.p1Id) === 'jo' && landX > mid + 220) off = 20;
-      if (Math.abs(this.lastShuttleX - sx) > 8 || this.rollA < this.skill || this.rollB < (100 - this.skill) / 2) {
-        target = sx + off;
-        this.lastShuttleX = sx;
-      } else {
-        target = this.lastShuttleX + off;
-      }
-    }
-    this.dbgTarget = X(target);
-
-    if (!m.rallyLive && !this.rallyOverSeen) {
-      this.rallyOverSeen = true;
-      G.setTimeout(() => { this.goHome = true; }, 1000);
-    } else if (m.rallyLive && this.rallyOverSeen) {
-      this.rallyOverSeen = false;
-      this.goHome = false;
-      this.rollA = 100;
-      this.rollB = 100;
-      this.skill = this.skillBase - 7;
-    }
-
-    const face = G.sign(this.scaleX);
-    if (Math.abs(target - x) < 10) {
-      this.dx = 0;
-      this.state = 'normal';
-    } else if (target - x < 0) {
-      this.dx = RUN_SPEED * face * this.speedMul;
-      this.state = 'forward';
-    } else if (target - x > 0) {
-      this.dx = -RUN_SPEED * face * this.speedMul;
-      this.state = 'backward';
-    } else {
-      this.dx = 0;
-      this.state = 'normal';
-    }
-
-    if (s && Math.abs(s.y - 190) < 10 && m.lastHitter !== this && x - 60 - sx < 20 &&
-        this.rollB < (100 - this.skill) / 2 && this.rollA >= this.skill && !this.inAir) {
-      this.jump();
-    }
-
-    if (this.inAir) this.cpuShift -= 20;
-    if (G.clock - this.lastCpuSwing > 500 && m.rallyLive && s && this.polyHit(this.rig.cpuHit, this.cpuShift, s.x, s.y) &&
-        m.lastHitter !== this && sx > X(m.netClipX)) {
-      this.lastCpuSwing = G.clock;
-      this.swing();
-      this.rollA = G.rand(0, 100);
-      this.rollB = G.rand(0, 100);
-    }
-    if (this.inAir) this.cpuShift += 20;
-
-    if (this.serving && Math.abs(this.serveTargetX - x) < 10 && !this.serveTriggered) {
-      this.serveTriggered = true;
-      if (this.jumpServe) {
-        G.setTimeout(() => { if (!this.inAir) this.jump(); }, 200);
-        G.setTimeout(() => { this.swing(); this.serveTriggered = false; }, 300);
-      } else {
-        G.setTimeout(() => { this.swing(); this.serveTriggered = false; }, 200);
-      }
-      this.rollA = G.rand(0, 100);
-      this.rollB = G.rand(0, 100);
-    }
-  }
-
   dispose() {
     for (const k in this.clips) this.clips[k].dispose();
   }
@@ -621,7 +508,7 @@ class Match {
       this.newRally();
       this.banner();
     } else if (this.mode === 'cpu') {
-      this.p2 = this.cpuPlayer(this.p2Id, 500, -1, ROUND_AI[CPU_LEVELS[this.level].row]);
+      this.p2 = this.cpuPlayer(this.p2Id, 500, -1, CPU_LEVELS[this.level].ai);
       this.greet();
       this.newRally();
       this.banner();
@@ -648,16 +535,14 @@ class Match {
     this.p2 = new Player(this, this.p2Id, 500, G.GROUND, -1);
   }
 
-  // a computer player tuned by a ROUND_AI row
-  cpuPlayer(id, x, facing, [speed, jump, power, skill]) {
-    if (this.p1Id === 'jo') speed *= 1.1;
+  // a computer player (js/ai.js) at a ROUND_AI level, keeping its character's build
+  cpuPlayer(id, x, facing, tune) {
     const p = new Player(this, id, x, G.GROUND, facing);
-    p.speedMul = speed;
-    p.jumpMul = jump;
-    p.powerMul = power;
-    p.setSkill(skill);
-    p.overheadChance = skill;
+    p.speedMul *= tune.speed * (this.p1Id === 'jo' ? tune.flyer || 1 : 1);
+    p.jumpMul *= tune.jump;
+    p.powerMul *= tune.power;
     p.cpu = true;
+    p.brain = new Brain(p, tune);
     return p;
   }
 

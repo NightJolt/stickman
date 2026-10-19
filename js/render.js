@@ -1141,11 +1141,9 @@ const R = (() => {
       const shift = p.underShift + (p.inAir && p.dy > -100 ? 20 : 0);
       dbgPoly(ctx, p, p.rig.underHit, shift, DBG.reach);
     }
-    // computer's "swing now" zone (with the airborne -20 shift think() applies)
-    if (p.cpu && p.rig.cpuHit) {
-      const shift = p.cpuShift + (p.inAir ? -20 : 0);
-      dbgPoly(ctx, p, p.rig.cpuHit, shift, DBG.cpu);
-    }
+    // computer's planned contact: where the shuttle will be when its racket meets it
+    const plan = p.brain && p.brain.plan;
+    if (plan && plan.mark && !plan.swung) dbgCross(ctx, plan.mark.x, plan.mark.y, DBG.cpu, 6);
     // racket box for the current swing frame: filled while it can still hit
     const b = p.racketBox();
     dbgBox(ctx, b, DBG.racket, p.hitLive ? 0.35 : 0, !p.hitLive);
@@ -1226,10 +1224,7 @@ const R = (() => {
       [`  ${p.inAir ? 'air' : 'ground'}  ${p.state}  ${p.serving ? 'serving  ' : ''}${p.swinging ? 'swinging  ' : ''}power ${n(p.power, 2)}`],
       [`  spd ${n(p.speedMul, 2)}  jmp ${n(p.jumpMul, 2)}  pow ${n(p.powerMul, 2)}`],
     ];
-    if (p.cpu) {
-      const cd = Math.max(0, 500 - (G.clock - p.lastCpuSwing));
-      out.push([`  skill ${n(p.skill, 0)}/${n(p.skillBase, 0)}  rollA ${n(p.rollA, 0)}  rollB ${n(p.rollB, 0)}  cd ${cd}ms${p.goHome ? '  home' : ''}`, DBG.cpu]);
-    }
+    if (p.brain) out.push([`  ${p.brain.describe()}`, DBG.cpu]);
     return out;
   }
 
@@ -1244,7 +1239,7 @@ const R = (() => {
     const who = (p) => (p === m.p1 ? 'P1' : p === m.p2 ? 'P2' : p && p === m.machine ? 'machine' : '-');
     const left = [
       ['DEBUG  ` to hide', '#39ff6a'],
-      [['■ racket ', DBG.racket], ['■ reach ', DBG.reach], ['■ cpu swing ', DBG.cpu], ['■ net ', DBG.netBody], ['■ tape', DBG.netTop]],
+      [['■ racket ', DBG.racket], ['■ reach ', DBG.reach], ['+ cpu contact ', DBG.cpu], ['■ net ', DBG.netBody], ['■ tape', DBG.netTop]],
       [`fps ${G.fps || 0}  clock ${G.clock}  dt ${Math.round(G.dt * 1000)}ms${G.paused ? '  PAUSED' : ''}`],
       [`updates ${G.updates.length}  timers ${G.timers.length}  fx ${m.fx.list.length}`],
       [`rally ${m.rallyLive ? 'live' : 'dead'}  server P${m.server}  last hit ${who(m.lastHitter)}`],

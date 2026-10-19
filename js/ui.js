@@ -592,7 +592,7 @@ const UI = (() => {
     const back = () => go(select1P(p1, 'cpu'));
     const s = {
       enter() {
-        s.levels = CPU_LEVELS.map((L, i) => btn(L.name, 448 + i * 58, 286, 54, 30, () => setLevel(i), { size: 13 }));
+        s.levels = CPU_LEVELS.map((L, i) => btn(L.name, 448 + (i % 2) * 85, 280 + Math.floor(i / 2) * 30, 81, 26, () => setLevel(i), { size: 13 }));
         s.buttons = [
           btn('Back', 440, 372, 80, 38, back),
           btn('Play!', 530, 372, 92, 38, start, { primary: true }),
@@ -653,9 +653,9 @@ const UI = (() => {
         fitText(ctx, d.name, 578, 232, 11, '#ffffff', 86, 'center');
         ctx.strokeStyle = 'rgba(255,255,255,0.12)';
         R.line(ctx, 452, 250, 610, 250);
-        text(ctx, 'Difficulty', 450, 268, 12, '#9fb3d1', 'left');
-        text(ctx, 'Tab', 612, 268, 10, 'rgba(255,255,255,0.4)', 'right', 'normal');
-        text(ctx, 'Plays at ' + ROUND_NAMES[CPU_LEVELS[level].row] + ' level', 531, 334, 10, '#c9d6ee', 'center', 'normal');
+        text(ctx, 'Difficulty', 450, 265, 12, '#9fb3d1', 'left');
+        text(ctx, 'Tab', 612, 265, 10, 'rgba(255,255,255,0.4)', 'right', 'normal');
+        text(ctx, CPU_LEVELS[level].note, 531, 348, 10, CPU_LEVELS[level].ai === CHAMPION_AI ? '#ffd166' : '#c9d6ee', 'center', 'normal');
         s.levels.forEach((b, i) => { b.primary = i === level; });
         drawButtons(ctx, s.buttons);
       },

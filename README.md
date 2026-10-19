@@ -1,7 +1,8 @@
 # Shuttle Sticks
 
-An HTML5 stick-figure badminton game. Its gameplay, physics and AI were rebuilt from a
-reverse-engineered Flash game. No build step, no dependencies: open `index.html` in a browser.
+An HTML5 stick-figure badminton game. Its gameplay and physics were rebuilt from a
+reverse-engineered Flash game; the computer opponent is new. No build step, no dependencies:
+open `index.html` in a browser.
 
 ## Modes
 
@@ -10,11 +11,37 @@ reverse-engineered Flash game. No build step, no dependencies: open `index.html`
 
 1v1 is new to this remake: pick your player, then any computer opponent (the flyers excepted,
 since the computer can't steer one) and a difficulty. Easy, Normal and Hard play like the
-tournament's Round 1, Quarter-Finals and Final Match. Tab cycles the difficulty, and the choice is remembered.
+tournament's Round 1, Quarter-Finals and Final Match. Champion is the planner with the mistakes
+taken out: near-instant reactions, exact footwork, no mistimed swings, always the best shot. Its
+character's speed, jump and power are left as they are. It wins about 93% of points against the
+Final-level computer. Tab cycles the
+difficulty, and the choice is remembered.
 
 Behind the title menu two computer players with random characters play silently for as long as
-the menu is up, with a new pair each time you return to it. The original's computer only ever
-played the right-hand side; the demo's left-hand player runs the same logic on a mirrored court.
+the menu is up, with a new pair each time you return to it.
+
+## The computer opponent
+
+The original's computer ran to a spot near the shuttle and swung as soon as it came into a fixed
+reach zone. It never knew which part of its swing would meet the shuttle, so it netted about half
+its rallies, and it almost never jumped. `js/ai.js` replaces it with one that plans each return:
+
+- After its reaction time, it replays the incoming flight with the game's own physics. Clip
+  timing and the frame clock are matched exactly, so it knows which swing frame will be showing
+  on every coming frame.
+- For each coming frame and each frame of its overhead and underhand swings, it works out where
+  to stand, whether and when to jump to get the racket there, and when to start swinging.
+- It flies every shot that would come off the racket and drops the ones that would net. It
+  scores the rest on how far short in time you will be, and marks down shots that fall apart if
+  its feet are a few px off. It jump-smashes high shuttles because those score well.
+- Its mistakes are human-sized: reaction time, footwork error, swings a frame off or badly
+  mistimed, how tight it plays the net, and how much it goes for winners rather than just getting
+  it back. `ROUND_AI` in `js/characters.js` sets them per tournament round. It now plays with
+  its character's own speed, jump and power, so Pogo Pete jumps higher than Big Boris.
+
+Calibrated against the same planner fixed at Quarter-Final level, that reference player wins
+about 77%, 65%, 53%, 37% and 22% of points against rounds 1 to 5. Planning a return takes well
+under a millisecond once warmed up.
 
 ## Controls
 
@@ -29,15 +56,15 @@ Jetpack Jo and Rocket Rae fly with the mouse and swing on click.
 Training puts you against a shot machine that keeps feeding clears, lobs, drops, drives and smashes, and counts your returns, misses and best streak. T toggles the shot trail: the shuttle's predicted flight and landing spot, the same prediction the debug overlay draws. The machine is new to this remake.
 P pauses (in the tournament the pause screen shows the bracket), Esc returns to the menu, M toggles sound. Add `?unlockall` to the URL to open every character.
 
-` (backtick) toggles the debug overlay: racket boxes (filled while the swing can still hit), the reach and computer-swing polygons, net boxes, court limits, the predicted shuttle path and the AI's landing estimate and target, plus live numbers for the shuttle and both players. The setting is remembered between visits.
+` (backtick) toggles the debug overlay: racket boxes (filled while the swing can still hit), the reach polygon, net boxes, court limits, the predicted shuttle path and landing estimate, the computer's target spot and planned contact point (+), plus live numbers for the shuttle and both players, including the computer's current plan. The setting is remembered between visits.
 
 ## What carries over from the original
 
 - The world: a 640×426 stage at 60 fps, gravity 1200, floor at y=400, walls at x=33 and x=607, the net post at 317.25, and the exact net body and net tape boxes.
-- Shuttle flight: drag of `0.965^(60·dt)`, collision checked in four sub-steps per frame, the net-tape roll and net-body bounce, wall bounce of 0.8 with a 200 minimum speed, and the landing-prediction pass the AI uses.
+- Shuttle flight: drag of `0.965^(60·dt)`, collision checked in four sub-steps per frame, the net-tape roll and net-body bounce, wall bounce of 0.8 with a 200 minimum speed, and the original's landing-prediction pass.
 - Swings: the per-frame racket angle and hitbox for every swing animation, read from the original timelines. Overhead shot angle is racket rotation + 30°, and late contact past 100° gets 1.25× power. Underhand is a fixed 40° lift. Holding the swing button builds power.
 - Serves: serve power and angle, the frame each serve releases on, the service-line clamp, and the floater's pop serve.
-- AI: the target-offset logic, skill rolls, jump and jump-serve choices, the 500 ms swing cooldown, and the round-by-round tuning (speed 1.1 to 1.15, skill 100 to 65).
+- The computer's serve: the original's three serving spots, and jump serves that get more frequent each round.
 - Rules and flow: matches to 7, the winner serves, five tournament rounds with a fixed opponent ladder per character (except the finals: where the original pitted Zara, Nimbus and Boris against their own mirror, they now face Turbo, Boris and Pogo Pete), and unlock tiers of 4, 4, 2 and 2.
 - Engine timing: integer-millisecond frame timestamps, timeline clips that advance by elapsed time, positions stored in 1/20 px steps, and the original's one-shared-update-list behaviour.
   One deliberate change: the original rounds every position toward the stage's left edge, so a shuttle drifting slowly right falls a little short while one drifting left overshoots. That made shots toward the right-hand player net about twice as often in computer-vs-computer play. Here the shuttle's sideways moves are rounded toward zero in both directions. Flights toward the right-hand side are unchanged bit for bit; flights toward the left land on average 1 px (at most about 7 px) nearer the net.
@@ -48,7 +75,8 @@ The art, characters, names, text, sound effects and music are original to this p
 
 - `js/rigs.js`: measured swing and hitbox geometry for each body type
 - `js/core.js`: frame clock, update list, timeline clips, timers, input
-- `js/sim.js`: shuttle, players, AI, match rules, effects
+- `js/sim.js`: shuttle, players, match rules, training machine, effects
+- `js/ai.js`: the computer opponent
 - `js/characters.js`: roster, ladders, unlock tiers
 - `js/music.js`: music engine (synth voices, reverb, delay, ducking) and the two tracks, written as note data
 - `js/render.js`, `js/ui.js`, `js/audio.js`, `js/main.js`: drawing, screens, sound effects, boot
