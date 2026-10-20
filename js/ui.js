@@ -575,6 +575,12 @@ const UI = (() => {
     return s;
   }
 
+  // how the two players are connected, for the corner of the screen
+  function linkText() {
+    const how = NET.path === 'direct' ? 'Direct' : NET.path === 'connecting' ? 'Connecting...' : 'Relayed';
+    return NET.rtt === null ? how : how + '  ·  ' + Math.round(NET.rtt) + ' ms';
+  }
+
   /* ======================================================== ONLINE: rooms */
   // kind 'create': get a code from the room server and wait for the other player.
   // kind 'join': type the code you were sent.
@@ -749,7 +755,7 @@ const UI = (() => {
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
         ctx.fillRect(0, 0, G.W, G.H);
         text(ctx, 'Online 1v1: pick your player', 230, 34, 22, '#ffd166');
-        text(ctx, 'Room ' + room, 620, 18, 11, 'rgba(255,255,255,0.5)', 'right', 'bold');
+        text(ctx, 'Room ' + room + '   ·   ' + linkText(), 620, 18, 11, 'rgba(255,255,255,0.5)', 'right', 'bold');
         tiles.forEach((t) => {
           const on = t.i === cursor, mine = picks[me] === t.id;
           ctx.save();
@@ -842,7 +848,7 @@ const UI = (() => {
         sync = host ? new HostSync(match) : new GuestSync(match);
         NET.listen((msg) => {
           if (msg.t === 's' && !host) sync.snapshot(msg);
-          else if (msg.t === 'i' && host) sync.input(msg.k | 0);
+          else if (msg.t === 'i' && host) sync.input(msg);
           else if (msg.t === 'rematch') {
             theyAsked = true;
             if (host && asked) restart();
@@ -887,7 +893,7 @@ const UI = (() => {
           ctx.fill();
           ctx.restore();
         }
-        if (NET.rtt !== null && !gone) text(ctx, 'ping ' + Math.round(NET.rtt) + ' ms', 8, 12, 10, 'rgba(255,255,255,0.55)', 'left', 'bold');
+        if (!gone) text(ctx, linkText(), 8, 12, 10, 'rgba(255,255,255,0.55)', 'left', 'bold');
         if (!host && sync && sync.stalled > 45 && !overlay) {
           ctx.fillStyle = 'rgba(8,12,26,0.75)';
           rr(ctx, 200, 170, 240, 44, 10);

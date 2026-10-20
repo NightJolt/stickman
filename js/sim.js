@@ -385,9 +385,16 @@ class Player {
   }
 
   baseUpdate(dt) {
-    const m = this.m;
     if (this.cpu) this.brain.update(dt);
     else if (this.kind !== 'jet') this.readKeys(dt);
+    this.integrate(dt);
+    this.racketCheck();
+    this.anim += dt;
+  }
+
+  // gravity, movement, court limits and landing for one frame (also replayed by an online
+  // guest to show its own moves before the host has them: js/online.js)
+  integrate(dt) {
     if (this.inAir) {
       this.dy += G.GRAVITY * dt;
       this.state = 'jump';
@@ -405,8 +412,6 @@ class Player {
       this.dy = 0;
       this.y = G.GROUND;
     }
-    this.racketCheck();
-    this.anim += dt;
   }
 
   readKeys(dt) {
@@ -423,6 +428,21 @@ class Player {
     // controls 3: an online opponent, whose keys arrive over the network (js/online.js)
     const rk = this.controls === 3 ? this.remote : null;
     const u = rk ? rk.u : any(up), s = rk ? rk.s : any(swing), l = rk ? rk.l : any(left), r = rk ? rk.r : any(right);
+    this.steer(l, r, u);
+    if (s) {
+      if (!this.swingHeld) {
+        this.swing(0.65);
+      } else {
+        this.power += (0.35 / 0.024) * dt;
+      }
+      this.swingHeld = true;
+    } else {
+      this.swingHeld = false;
+    }
+  }
+
+  // run and jump from the left / right / up keys
+  steer(l, r, u) {
     if (r && l) {
       this.dx = 0;
       if (!this.inAir) this.state = 'normal';
@@ -441,16 +461,6 @@ class Player {
       this.jumpHeld = true;
     } else {
       this.jumpHeld = false;
-    }
-    if (s) {
-      if (!this.swingHeld) {
-        this.swing(0.65);
-      } else {
-        this.power += (0.35 / 0.024) * dt;
-      }
-      this.swingHeld = true;
-    } else {
-      this.swingHeld = false;
     }
   }
 
