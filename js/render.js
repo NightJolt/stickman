@@ -234,7 +234,7 @@ const R = (() => {
 
   /* ------------------------------------------------------------ shuttle */
   function shuttle(ctx, s) {
-    const x = s.x + G.LAYER_DX, y = s.y;
+    const x = s.x + s.ox + G.LAYER_DX, y = s.y + s.oy;
     // floor shadow
     const h = Math.max(0, G.GROUND - y);
     const k = Math.max(0.25, 1 - h / 380);

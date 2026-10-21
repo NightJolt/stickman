@@ -19,6 +19,8 @@ class Shuttle {
     this.rotation = 0;
     this.landX = 0;          // predicted landing x
     this.trail = null;
+    this.ox = 0;             // drawn this far from where it is (online: a correction easing out)
+    this.oy = 0;
     this.hits = 0;           // racket contacts (the computer counts shots by it)
   }
 
@@ -978,7 +980,7 @@ class FX {
     const t = { pts: [], rate: 0, attached: shuttle, alive: true, heat: 0, fire: [], lastX: null, lastY: null };
     t._emit = (dt) => {
       const s = t.attached;
-      if (s) t.pts.push({ x: s.x + G.LAYER_DX, y: s.y, a: Math.min(1, t.rate), r: s.rotation, h: t.heat });
+      if (s) t.pts.push({ x: s.x + s.ox + G.LAYER_DX, y: s.y + s.oy, a: Math.min(1, t.rate), r: s.rotation, h: t.heat });
       for (const p of t.pts) p.a -= 0.06;
       while (t.pts.length && t.pts[0].a <= 0) t.pts.shift();
       this.burn(t, s, dt);
@@ -1012,7 +1014,7 @@ class FX {
       const cold = t.heat < 0.05;
       t.heat = Math.max(t.heat - FIRE_COOL * dt, k);
       if (cold && t.heat > 0.3) this.m.sfx('ignite', t.heat);
-      const x = s.x + G.LAYER_DX, y = s.y;
+      const x = s.x + s.ox + G.LAYER_DX, y = s.y + s.oy;
       if (t.heat > 0.02) {
         // spread new particles along the path flown this frame (fast shots cover ~30 px a frame)
         const px = t.lastX === null ? x : t.lastX, py = t.lastY === null ? y : t.lastY;

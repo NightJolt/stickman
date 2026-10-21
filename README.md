@@ -40,8 +40,10 @@ stays the hitter's to hit again. If the flight surprises the owner (a roll over 
 back off the net), it hands the shuttle over when it actually crosses. Each screen draws the other
 player where they are now: their position, speed and held keys, run forward by half the ping
 through the same movement code. A sudden change of direction shows as a short correction, eased
-out. The other sign of the connection is right after your opponent hits: the shuttle jumps ahead
-by half the ping.
+out. Their swings and hits can't be guessed, so they arrive half a ping late. Rather than jump,
+the swing plays at double speed from where it was until it has caught up, and the shuttle is
+drawn gliding from where it was on screen onto its new flight over a few frames. Only the drawing
+glides; the flight itself is exact, so your return is judged on where the shuttle really is.
 
 After pairing, the two browsers try to connect directly over WebRTC (`js/net.js`). The room
 server passes the connection setup between them, and public STUN servers (Google, Cloudflare)

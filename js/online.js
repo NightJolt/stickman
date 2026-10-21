@@ -16,9 +16,14 @@
  * The other player is drawn where they are now, not where their last message left them: each
  * frame they send their position, speed and the keys they're holding, and this screen runs that
  * forward by half the ping (plus however long ago it arrived) through the same running and
- * jumping code, and moves their swing on as far. So their racket meets the shuttle when the
- * shuttle leaves it. When they change direction the guess is briefly wrong; the difference is
- * eased out over a few frames.
+ * jumping code. When they change direction the guess is briefly wrong; the difference is eased
+ * out over a few frames.
+ *
+ * Their swings and hits can't be guessed, so they show up half a ping late. Rather than jump,
+ * the swing plays from where it was at double speed until it has caught up, and the shuttle is
+ * drawn gliding from where it was on screen onto its new flight over a few frames. Only the
+ * drawing glides (Shuttle.ox/oy): the flight itself is exact, so a return is judged on where the
+ * shuttle really is.
  *
  * Movement goes over the direct channel that may drop or reorder messages (only the newest
  * counts); hits and points go over the reliable one (js/net.js).
@@ -29,6 +34,7 @@
   const FRAME_MS = 1000 / 60;
   const MAX_AHEAD = 20; // frames we'll guess ahead at most
   const SNAP = 40;      // px: a correction bigger than this jumps instead of easing
+  const GLIDE = 0.72;   // share of a shuttle correction still showing after each frame
   const STUCK = 240;    // frames a landed shuttle waits for the other screen's verdict
   const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -44,6 +50,7 @@
       this.guess = null;    // where we put them last frame, before easing
       this.ease = { x: 0, y: 0 };
       this.lastCur = 1;
+      this.shownCur = {};   // the swing frame we're showing of each of their clips
       this.side = 0;        // the half of the court the shuttle was in last frame
       this.waiting = 0;     // frames the shuttle has lain on their side without a verdict
       m.peer = this;
@@ -74,9 +81,11 @@
     remoteHandOver(msg) {
       const m = this.m, s = m.shuttle;
       if (msg.r !== this.rally() || !s || !m.rallyLive || msg.n !== s.hits) return;
+      const before = this.drawnAt(s);
       Object.assign(s, { x: msg.x, y: msg.y, dx: msg.dx, dy: msg.dy, speed: msg.speed, dir: msg.dir, rotation: msg.dir });
       m.owner = m.me;
       this.catchUp(s, 0);
+      this.glide(s, before);
     }
 
     // a shuttle sent from their screen has been flying there for half a ping (and `extra` frames)
@@ -94,6 +103,7 @@
       if (msg.r !== this.rally()) return; // a rally that's already over here
       if (m.rallyDue) m.newRally();       // their serve beat our countdown
       if (!m.rallyLive) return;
+      const before = this.drawnAt(msg.n === 1 ? null : m.shuttle);
       if (msg.n === 1 || !m.shuttle) m.spawnShuttle(msg.x, msg.y);
       const s = m.shuttle;
       s.x = msg.x;
@@ -105,6 +115,15 @@
       m.lastHitter = m.remote;
       m.owner = msg.o || m.me;
       this.catchUp(s, 1);
+      this.glide(s, before);
+    }
+
+    // where a shuttle is on screen now, and drawing it from there onto where it really is
+    drawnAt(s) { return s ? { x: s.x + s.ox, y: s.y + s.oy } : null; }
+    glide(s, from) {
+      if (!from) return;
+      s.ox = from.x - s.x;
+      s.oy = from.y - s.y;
     }
 
     // from Match.point when our game decided it (before the score changes)
@@ -171,19 +190,35 @@
         p.x = now.x + this.ease.x;
         p.y = Math.min(G.GROUND, now.y + this.ease.y);
         p.state = now.inAir ? 'jump' : now.dx === 0 ? 'normal' : now.dx * Math.sign(p.scaleX) > 0 ? 'forward' : 'backward';
-        // their swing, moved on as far
+        // their swing: we hear of it half a ping late, so it plays double speed from the frame
+        // the message had until it has caught up with where it must be by now
+        const swingAt = (name, at) => {
+          const was = this.shownCur[name] || 1;
+          let now = at;
+          if (at > 1) {
+            now = Math.min(p.clips[name].total, at + ahead, Math.max(at, was + 2));
+            if (was > 1 && now < was) now = was; // never backwards within a swing
+          }
+          this.shownCur[name] = now;
+          return now;
+        };
         p.shown = CLIPS[a[3]];
         p.active = p.clips[p.shown];
-        const cur = a[4] > 1 ? Math.min(p.active.total, a[4] + ahead) : 1;
+        const cur = swingAt(p.shown, a[4]);
         if (cur > 1 && this.lastCur === 1) m.sfx('whoosh'); // they started a swing
         this.lastCur = cur;
         p.active.cur = cur;
-        p.clips.serve.cur = a[6] && a[5] > 1 ? Math.min(p.clips.serve.total, a[5] + ahead) : a[5];
+        if (p.shown !== 'serve') p.clips.serve.cur = swingAt('serve', a[5]);
       }
       p.anim += dt;
       if (p.kind === 'hover' && G.chance(25)) m.fx.debris(p.x + G.rand(-5, 5), p.y - 60, 'puff');
 
       const s = m.shuttle;
+      if (s && (s.ox || s.oy)) {
+        s.ox *= GLIDE;
+        s.oy *= GLIDE;
+        if (Math.hypot(s.ox, s.oy) < 0.3) s.ox = s.oy = 0;
+      }
       // ours, and it just went over the net when it wasn't meant to: hand it over
       if (s && m.rallyLive) {
         const side = this.sideOf(s.x);
