@@ -69,6 +69,12 @@ const UI = (() => {
     if (screen.enter) screen.enter();
   }
 
+  // which build this is (js/version.js, stamped by ops/deploy.sh)
+  const BUILD = window.VERSION || { build: 'dev', sha: '' };
+  function buildText() {
+    return BUILD.build === 'dev' ? 'dev build' : 'build ' + BUILD.build + '  ·  ' + BUILD.sha;
+  }
+
   /* ======================================================== TITLE */
   // menu: 'main', 'single' or 'multi'; `at` is the button to focus. Behind the menu two computer
   // players with random characters rally silently for as long as the title is up.
@@ -138,6 +144,7 @@ const UI = (() => {
         text(ctx, 'STICKS', 0, 32, 58, '#ffffff', 'center', '900', '#1b1b24', 10);
         ctx.restore();
         text(ctx, MENUS[menu].caption, 320, 192, 14, '#c9d6ee', 'center', 'bold');
+        text(ctx, buildText(), 12, 412, 10, 'rgba(255,255,255,0.45)', 'left', 'bold');
         drawButtons(ctx, s.buttons);
       },
     };
@@ -711,8 +718,14 @@ const UI = (() => {
       NET.send({ t: 'ready', on: false });
       SFX.play('click');
     };
+    // Both games have to be the same build. One too old to say which it is counts as different.
+    const since = time;
+    const mismatch = () => {
+      if (NET.theirVersion === null) return time - since > 4 ? 'old' : null;
+      return NET.theirVersion !== NET.version ? NET.theirVersion : null;
+    };
     const toggleReady = () => {
-      if (gone || told || !picks[me]) return;
+      if (gone || told || !picks[me] || mismatch()) return;
       ready[me] = !ready[me];
       NET.send({ t: 'ready', on: ready[me] });
       SFX.play('click');
@@ -800,8 +813,16 @@ const UI = (() => {
         });
         text(ctx, 'Move  ← → / A D     Jump  ↑ / W     Swing  ↓ / S / Space', 230, 260, 11, 'rgba(255,255,255,0.55)', 'center', 'normal');
         text(ctx, picks[me] ? (ready[me] ? 'Waiting for your opponent...' : 'Press Ready when you are set.') : 'Click a player or use the arrows and Enter.', 230, 284, 12, '#c9d6ee', 'center', 'normal');
-        s.buttons[1].hidden = !picks[me] || !!gone;
+        const bad = mismatch();
+        s.buttons[1].hidden = !picks[me] || !!gone || !!bad;
         drawButtons(ctx, s.buttons);
+        if (bad && !gone) {
+          ctx.fillStyle = 'rgba(8,12,26,0.85)';
+          rr(ctx, 40, 300, 380, 60, 12);
+          ctx.fill();
+          const theirs = bad === 'old' ? 'an older build' : 'build ' + bad.split('-')[0];
+          text(ctx, 'Your opponent is on ' + theirs + ', you are on ' + (BUILD.build === 'dev' ? 'a dev build' : 'build ' + BUILD.build) + '.\nWhoever is behind should reload the page.', 230, 330, 12, '#ff7675', 'center', 'bold');
+        }
         if (gone) {
           ctx.fillStyle = 'rgba(8,12,26,0.85)';
           rr(ctx, 120, 300, 360, 56, 12);

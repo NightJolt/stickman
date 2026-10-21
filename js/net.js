@@ -35,6 +35,9 @@ const NET = (() => {
   let pendingIce = [];     // candidates that arrived before the offer/answer
   let directTimer = null;
   let path = 'relay';      // 'connecting' | 'direct' | 'relay'
+  let theirVersion = null; // the other player's build (js/version.js), once they've said
+  const V = window.VERSION || { build: 'dev', sha: '' };
+  const VERSION_ID = V.build + (V.sha ? '-' + V.sha : '');
 
   function serverUrl() {
     const q = /[?&]server=([^&]+)/.exec(location.search);
@@ -66,7 +69,9 @@ const NET = (() => {
     if (msg.t === 'ping') return send({ t: 'pong', ts: msg.ts });
     if (msg.t === 'pong') { rtt = performance.now() - msg.ts; return; }
     if (msg.t === 'rtc') return signal(msg);
+    if (msg.t === 'hello') { theirVersion = String(msg.v); return; }
     if (msg.t === 'paired') {
+      viaServer({ t: 'hello', v: VERSION_ID }); // so a game that's out of date can be spotted
       paired = true;
       pingTimer = setInterval(() => send({ t: 'ping', ts: performance.now() }), 1000);
       goDirect(msg.role);
@@ -158,6 +163,7 @@ const NET = (() => {
     pingTimer = null;
     paired = false;
     rtt = null;
+    theirVersion = null;
     dropDirect();
     path = 'relay';
     if (ws) {
@@ -208,6 +214,8 @@ const NET = (() => {
     get paired() { return paired; },
     get rtt() { return rtt; },
     get path() { return path; },
+    get version() { return VERSION_ID; },
+    get theirVersion() { return theirVersion; },
   };
 })();
 window.NET = NET;

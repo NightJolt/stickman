@@ -43,6 +43,11 @@ else
   rm -rf "$release.tmp"
   rsync -a --exclude='.*' --exclude='/ops' --exclude='/server' --exclude='/README.md' ./ "$release.tmp/"
   [ -f "$release.tmp/index.html" ] || { log "no index.html in $SHA - not published"; rm -rf "$release.tmp"; exit 1; }
+  # stamp the build on the title screen: commit count (only ever goes up), hash and date
+  BUILD=$(git rev-list --count HEAD)
+  DATE=$(git log -1 --format=%cd --date=format:%Y-%m-%d)
+  printf "'use strict';\n// written by ops/deploy.sh\nwindow.VERSION = { build: '%s', sha: '%s', date: '%s' };\n" \
+    "$BUILD" "$SHA" "$DATE" > "$release.tmp/js/version.js"
   chmod -R a+rX "$release.tmp"
   mv "$release.tmp" "$release"
 fi

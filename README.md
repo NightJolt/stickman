@@ -115,7 +115,8 @@ The art, characters, names, text, sound effects and music are original to this p
 - `js/core.js`: frame clock, update list, timeline clips, timers, input
 - `js/sim.js`: shuttle, players, match rules, training machine, effects
 - `js/ai.js`: the computer opponent
-- `js/net.js`, `js/online.js`: Online 1v1 connection and host/guest sync
+- `js/net.js`, `js/online.js`: Online 1v1 connection and peer-to-peer sync
+- `js/version.js`: the build number (stamped by `ops/deploy.sh`)
 - `server/server.js`: the room server for Online 1v1 (not published with the game files)
 - `js/characters.js`: roster, ladders, unlock tiers
 - `js/music.js`: music engine (synth voices, reverb, delay, ducking) and the two tracks, written as note data
@@ -128,3 +129,9 @@ within about a minute: the VM's `watch-deploy.sh` syncs `~/stickman` and runs `o
 which copies the game files into a new release and switches nginx to it
 (`ops/nginx/stickman.conf`). There is no build step there either. Online 1v1 also needs the room
 server running there (see Online 1v1 above).
+
+The title screen's bottom-left corner shows which build is live, e.g. `build 12 · fd88f2c`: the
+commit count (it only goes up) and the commit. `deploy.sh` writes it into `js/version.js` in each
+release; a copy run from the repo says `dev build`. Online, the two games swap builds when they
+pair, and if they differ (or one is too old to say) character select asks whoever is behind to
+reload instead of letting them start.

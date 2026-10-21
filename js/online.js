@@ -10,18 +10,23 @@
  * different points, even when their flights differ by a pixel. (Online only: you can't hit your
  * own shot again after it bounces back off the net.)
  *
- * The other player is drawn from the movement they send every frame, a couple of frames behind
- * the newest so network jitter doesn't show. Movement goes over the direct channel that may drop
- * or reorder frames; hits and points go over the reliable one (js/net.js).
+ * The other player is drawn where they are now, not where their last message left them: each
+ * frame they send their position, speed and the keys they're holding, and this screen runs that
+ * forward by half the ping (plus however long ago it arrived) through the same running and
+ * jumping code, and moves their swing on as far. So their racket meets the shuttle when the
+ * shuttle leaves it. When they change direction the guess is briefly wrong; the difference is
+ * eased out over a few frames.
+ *
+ * Movement goes over the direct channel that may drop or reorder messages (only the newest
+ * counts); hits and points go over the reliable one (js/net.js).
  */
 (() => {
   const STATES = ['normal', 'forward', 'backward', 'jump'];
   const CLIPS = ['over', 'under', 'serve'];
-  // The other player is drawn a few frames behind their newest message. It starts at BUFFER,
-  // waits a frame longer each time their messages run dry, and creeps back after CALM frames.
-  const BUFFER = 2, MAX_BUFFER = 12, CALM = 600;
-  const SLACK = 6;   // more than this many extra frames queued and it skips ahead
-  const STUCK = 240; // frames a landed shuttle waits for the other screen's verdict
+  const FRAME_MS = 1000 / 60;
+  const MAX_AHEAD = 20; // frames we'll guess ahead at most
+  const SNAP = 40;      // px: a correction bigger than this jumps instead of easing
+  const STUCK = 240;    // frames a landed shuttle waits for the other screen's verdict
   const r2 = (v) => Math.round(v * 100) / 100;
 
   class PeerSync {
@@ -30,13 +35,11 @@
       this.f = 0;           // our movement messages
       this.games = 0;       // rematches played, for telling rallies apart
       this.applying = false;
-      this.buf = [];        // the other player's movement, by frame
-      this.latest = null;
-      this.play = null;     // their frame on show
-      this.delay = BUFFER;
-      this.calm = 0;
-      this.starving = false;
+      this.latest = null;   // the newest movement message from them
+      this.age = 0;         // frames since it arrived
       this.stalled = 0;     // frames since anything new arrived from them
+      this.guess = null;    // where we put them last frame, before easing
+      this.ease = { x: 0, y: 0 };
       this.lastCur = 1;
       this.waiting = 0;     // frames the shuttle has lain on their side without a verdict
       m.peer = this;
@@ -89,68 +92,63 @@
     }
 
     /* ---- movement ---- */
-    // once per frame: how our player stands, for the other screen
+    // once per frame: how our player stands and moves, and what they're pressing
     frame() {
-      const p = this.m.local;
+      const p = this.m.local, K = G.KEY, any = (list) => list.some(G.isDown);
+      const keys = (any([K.LEFT, K.A]) ? 1 : 0) | (any([K.RIGHT, K.D]) ? 2 : 0) | (any([K.UP, K.W]) ? 4 : 0);
       NET.send({ t: 'st', f: ++this.f, p: [r2(p.x), r2(p.y), STATES.indexOf(p.state), CLIPS.indexOf(p.shown),
-        p.clips[p.shown].cur, p.clips.serve.cur, p.serving ? 1 : 0, p.inAir ? 1 : 0] });
+        p.clips[p.shown].cur, p.clips.serve.cur, p.serving ? 1 : 0, p.inAir ? 1 : 0,
+        r2(p.dx), r2(p.dy), p.jumpHeld ? 1 : 0, keys] });
     }
 
     stream(msg) {
-      if (this.play !== null && msg.f <= this.play) return; // too late to show
-      let i = this.buf.length;
-      while (i > 0 && this.buf[i - 1].f > msg.f) i--;
-      if (i > 0 && this.buf[i - 1].f === msg.f) return;     // a copy
-      this.buf.splice(i, 0, msg);
-      if (!this.latest || msg.f > this.latest.f) {
-        this.latest = msg;
-        this.stalled = 0;
-      }
+      if (this.latest && msg.f <= this.latest.f) return; // older than what we have
+      this.latest = msg;
+      this.age = 0;
+      this.stalled = 0;
     }
 
     // every frame, after our player and the shuttle have moved
     update(dt) {
-      const m = this.m;
+      const m = this.m, p = m.remote, sn = this.latest;
       this.stalled++;
-      let last = null, starved = false;
-      if (this.play === null && this.buf.length >= this.delay) this.play = this.latest.f - this.delay;
-      if (this.play !== null) {
-        const newest = this.latest.f;
-        let target = this.play + 1;
-        const ahead = newest - target;
-        if (ahead > this.delay + SLACK) target = newest - this.delay; // far behind: jump
-        else if (ahead > this.delay + 1) target++;                    // a little behind: play two
-        starved = target > newest;
-        this.play = Math.min(target, newest);
-        while (this.buf.length && this.buf[0].f <= this.play) last = this.buf.shift();
-      }
-      if (starved) {
-        if (!this.starving) {
-          this.delay = Math.min(MAX_BUFFER, this.delay + 1);
-          this.calm = 0;
+      if (sn) {
+        const a = sn.p, keys = a[11] | 0;
+        // how far behind that message is by now: half the ping, plus its time here
+        const ahead = Math.min(MAX_AHEAD, Math.round((NET.rtt || 0) / 2 / FRAME_MS) + this.age);
+        this.age++;
+        const step = () => { p.steer(!!(keys & 1), !!(keys & 2), !!(keys & 4)); p.integrate(1 / 60); };
+        const save = () => ({ x: p.x, y: p.y, dx: p.dx, dy: p.dy, inAir: p.inAir, jumpHeld: p.jumpHeld });
+        // last frame's guess moved on a frame, to compare with the new one
+        let carried = null;
+        if (this.guess) {
+          Object.assign(p, this.guess, { serving: !!a[6] });
+          step();
+          carried = save();
         }
-        this.starving = true;
-      } else {
-        this.starving = false;
-        if (++this.calm >= CALM && this.delay > BUFFER) {
-          this.delay--;
-          this.calm = 0;
+        // their newest state, run forward to now
+        Object.assign(p, { x: a[0], y: a[1], dx: a[8], dy: a[9], inAir: !!a[7], jumpHeld: !!a[10], serving: !!a[6] });
+        for (let i = 0; i < ahead; i++) step();
+        const now = save();
+        if (carried) {
+          const ex = carried.x - now.x, ey = carried.y - now.y;
+          if (Math.hypot(ex, ey) > SNAP) this.ease = { x: 0, y: 0 };
+          else this.ease = { x: (this.ease.x + ex) * 0.75, y: (this.ease.y + ey) * 0.75 };
+          if (Math.abs(this.ease.x) < 0.05) this.ease.x = 0;
+          if (Math.abs(this.ease.y) < 0.05) this.ease.y = 0;
         }
-      }
-      const p = m.remote;
-      if (last) {
-        const a = last.p;
-        p.x = a[0];
-        p.y = a[1];
-        p.state = STATES[a[2]];
+        this.guess = now;
+        p.x = now.x + this.ease.x;
+        p.y = Math.min(G.GROUND, now.y + this.ease.y);
+        p.state = now.inAir ? 'jump' : now.dx === 0 ? 'normal' : now.dx * Math.sign(p.scaleX) > 0 ? 'forward' : 'backward';
+        // their swing, moved on as far
         p.shown = CLIPS[a[3]];
         p.active = p.clips[p.shown];
-        if (a[4] > 1 && this.lastCur === 1) m.sfx('whoosh'); // they started a swing
-        this.lastCur = a[4];
-        p.active.cur = a[4];
-        p.clips.serve.cur = a[5];
-        p.serving = !!a[6];
-        p.inAir = !!a[7];
+        const cur = a[4] > 1 ? Math.min(p.active.total, a[4] + ahead) : 1;
+        if (cur > 1 && this.lastCur === 1) m.sfx('whoosh'); // they started a swing
+        this.lastCur = cur;
+        p.active.cur = cur;
+        p.clips.serve.cur = a[6] && a[5] > 1 ? Math.min(p.clips.serve.total, a[5] + ahead) : a[5];
       }
       p.anim += dt;
       if (p.kind === 'hover' && G.chance(25)) m.fx.debris(p.x + G.rand(-5, 5), p.y - 60, 'puff');
