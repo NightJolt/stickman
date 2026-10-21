@@ -32,12 +32,16 @@ How it works (`js/online.js`): each screen runs the match and is in charge of it
 so both players move, jump and swing with no delay. Your own game decides whether your racket met
 the shuttle. When it did, the launch (contact point, power, angle) goes to the other screen,
 which launches the same shot and fast-forwards it by half the ping, so it's where it really is.
-The shuttle belongs to the player it's flying to: only they can hit it next, and only their game
-decides where it came down and who won the point, so the two screens never award different
-points. (Online only: you can't hit your own shot again after it bounces back off the net.) Each
-screen draws the other player from the movement they send every frame, a couple of frames behind
-so network jitter doesn't show. The only sign of the connection is right after your opponent hits:
-the shuttle jumps ahead by half the ping.
+One game at a time owns the shuttle: only that player can hit it, and only that game decides
+where it came down and who won the point, so the two screens never award different points. A shot
+heading over the net belongs to the opponent from the moment it's hit, so they can return it
+without waiting. One that will come down on the hitter's side (a mishit, a serve into the net)
+stays the hitter's to hit again. If the flight surprises the owner (a roll over the tape, a bounce
+back off the net), it hands the shuttle over when it actually crosses. Each screen draws the other
+player where they are now: their position, speed and held keys, run forward by half the ping
+through the same movement code. A sudden change of direction shows as a short correction, eased
+out. The other sign of the connection is right after your opponent hits: the shuttle jumps ahead
+by half the ping.
 
 After pairing, the two browsers try to connect directly over WebRTC (`js/net.js`). The room
 server passes the connection setup between them, and public STUN servers (Google, Cloudflare)

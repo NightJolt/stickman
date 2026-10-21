@@ -5,10 +5,13 @@
  * shuttle. When it does, the launch (contact point, power, angle) goes to the other screen, which
  * launches the same shot and fast-forwards it by half the ping so it is where it really is.
  *
- * The shuttle belongs to the player it is flying to: only their racket can hit it next, and only
- * their game decides where it came down and who won the point. So the two screens never award
- * different points, even when their flights differ by a pixel. (Online only: you can't hit your
- * own shot again after it bounces back off the net.)
+ * One game at a time owns the shuttle: only that player's racket can hit it, and only that game
+ * decides where it came down and who won the point, so the two screens never award different
+ * points even when their flights differ by a pixel. A shot that's going over the net belongs to
+ * the opponent from the moment it's hit, so they can return it without waiting. One that will
+ * come down on the hitter's side (a mishit, a serve into the net) stays the hitter's, to hit
+ * again. If the flight surprises us (a roll over the tape, a bounce back off the net), the owner
+ * hands it over when it actually crosses.
  *
  * The other player is drawn where they are now, not where their last message left them: each
  * frame they send their position, speed and the keys they're holding, and this screen runs that
@@ -41,6 +44,7 @@
       this.guess = null;    // where we put them last frame, before easing
       this.ease = { x: 0, y: 0 };
       this.lastCur = 1;
+      this.side = 0;        // the half of the court the shuttle was in last frame
       this.waiting = 0;     // frames the shuttle has lain on their side without a verdict
       m.peer = this;
     }
@@ -49,11 +53,39 @@
     rally() { return this.games * 1000 + this.m.score1 + this.m.score2; }
 
     /* ---- hits and points ---- */
-    // from Shuttle.hit: our racket met it (or we served), so it's theirs now
+    // which player's half of the court x is in
+    sideOf(x) { return x < G.NET_X ? 1 : 2; }
+
+    // from Shuttle.hit: our racket met it (or we served). It's theirs if it's going over.
     hit(s, power, dir, kind) {
       if (this.applying) return;
-      this.m.owner = 3 - this.m.me;
-      NET.send({ t: 'hit', r: this.rally(), n: s.hits, x: s.x, y: s.y, power, dir, kind: kind || null });
+      const m = this.m;
+      m.owner = this.sideOf(s.landX) === m.me ? m.me : 3 - m.me;
+      this.side = this.sideOf(s.x);
+      NET.send({ t: 'hit', r: this.rally(), n: s.hits, x: s.x, y: s.y, power, dir, kind: kind || null, o: m.owner });
+    }
+
+    // it crossed the net against the forecast while ours: theirs now, from exactly here
+    handOver(s) {
+      const m = this.m;
+      m.owner = 3 - m.me;
+      NET.send({ t: 'own', r: this.rally(), n: s.hits, x: s.x, y: s.y, dx: s.dx, dy: s.dy, speed: s.speed, dir: s.dir });
+    }
+    remoteHandOver(msg) {
+      const m = this.m, s = m.shuttle;
+      if (msg.r !== this.rally() || !s || !m.rallyLive || msg.n !== s.hits) return;
+      Object.assign(s, { x: msg.x, y: msg.y, dx: msg.dx, dy: msg.dy, speed: msg.speed, dir: msg.dir, rotation: msg.dir });
+      m.owner = m.me;
+      this.catchUp(s, 0);
+    }
+
+    // a shuttle sent from their screen has been flying there for half a ping (and `extra` frames)
+    catchUp(s, extra) {
+      const m = this.m;
+      this.waiting = 0;
+      const ahead = extra + Math.min(15, Math.round((NET.rtt || 0) / 2 / (1000 / 60)));
+      for (let i = 0; i < ahead && m.shuttle === s && m.rallyLive; i++) s.update(1 / 60);
+      this.side = this.sideOf(s.x);
     }
 
     // their racket met it: the same launch here, caught up to where it is by now
@@ -71,10 +103,8 @@
       this.applying = false;
       s.hits = msg.n;
       m.lastHitter = m.remote;
-      m.owner = m.me;
-      this.waiting = 0;
-      const ahead = 1 + Math.min(15, Math.round((NET.rtt || 0) / 2 / (1000 / 60)));
-      for (let i = 0; i < ahead && m.shuttle === s && m.rallyLive; i++) s.update(1 / 60);
+      m.owner = msg.o || m.me;
+      this.catchUp(s, 1);
     }
 
     // from Match.point when our game decided it (before the score changes)
@@ -153,9 +183,15 @@
       p.anim += dt;
       if (p.kind === 'hover' && G.chance(25)) m.fx.debris(p.x + G.rand(-5, 5), p.y - 60, 'puff');
 
+      const s = m.shuttle;
+      // ours, and it just went over the net when it wasn't meant to: hand it over
+      if (s && m.rallyLive) {
+        const side = this.sideOf(s.x);
+        if (m.owner === m.me && side !== this.side && side !== m.me) this.handOver(s);
+        this.side = side;
+      }
       // a shuttle that came down on their side waits for their verdict; if their screen has
       // gone quiet, call it here so the rally can't hang
-      const s = m.shuttle;
       if (s && m.rallyLive && m.owner !== m.me && s.y >= G.GROUND) {
         if (++this.waiting > STUCK) {
           this.waiting = 0;

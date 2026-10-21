@@ -874,6 +874,7 @@ const UI = (() => {
         NET.listen((msg) => {
           if (msg.t === 'st') sync.stream(msg);
           else if (msg.t === 'hit') sync.remoteHit(msg);
+          else if (msg.t === 'own') sync.remoteHandOver(msg);
           else if (msg.t === 'pt') sync.remotePoint(msg);
           else if (msg.t === 'rematch') {
             theyAsked = true;

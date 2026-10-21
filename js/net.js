@@ -23,7 +23,7 @@ const NET = (() => {
   ];
   const DIRECT_WAIT = 10000;                  // ms to try for a direct link before settling
   const FAST = new Set(['st', 'ping', 'pong']);     // direct and unreliable
-  const SURE = new Set(['hit', 'pt', 'rematch']);   // direct and reliable
+  const SURE = new Set(['hit', 'own', 'pt', 'rematch']); // direct and reliable
   let ws = null;
   let listener = null;
   let leaveFn = null;
