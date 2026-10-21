@@ -38,8 +38,10 @@
   const r2 = (v) => Math.round(v * 100) / 100;
 
   class PeerSync {
-    constructor(m) {
+    // opts.predict: false draws exactly what has arrived (the room's creator can choose that)
+    constructor(m, opts = {}) {
       this.m = m;
+      this.predict = opts.predict !== false;
       this.f = 0;           // our movement messages
       this.games = 0;       // rematches played, for telling rallies apart
       this.applying = false;
@@ -189,7 +191,7 @@
       this.stalled++;
 
       // their clock: half a ping back while the shuttle is theirs to play, now otherwise
-      const behind = s && m.rallyLive && m.owner && m.owner !== m.me ? this.oneWay() : 0;
+      const behind = this.predict && s && m.rallyLive && m.owner && m.owner !== m.me ? this.oneWay() : 0;
       const ms = dt * 1000;
       if (this.lag < behind) this.lag = Math.min(behind, this.lag + SLOW * ms);
       else this.lag = Math.max(behind, this.lag - FAST * ms);
@@ -235,7 +237,7 @@
       const m = this.m, p = m.remote, sn = this.latest;
       if (sn) {
         const a = sn.p, keys = a[11] | 0;
-        const ahead = Math.max(0, Math.round((this.oneWay() - this.lag) / FRAME_MS)) + this.age;
+        const ahead = this.predict ? Math.max(0, Math.round((this.oneWay() - this.lag) / FRAME_MS)) + this.age : 0;
         this.age++;
         const step = () => { p.steer(!!(keys & 1), !!(keys & 2), !!(keys & 4)); p.integrate(1 / 60); };
         const save = () => ({ x: p.x, y: p.y, dx: p.dx, dy: p.dy, inAir: p.inAir, jumpHeld: p.jumpHeld });

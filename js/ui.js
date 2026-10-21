@@ -591,6 +591,11 @@ const UI = (() => {
   /* ======================================================== ONLINE: rooms */
   // kind 'create': get a code from the room server and wait for the other player.
   // kind 'join': type the code you were sent.
+  // Online prediction (js/online.js): on by default, the room's creator can turn it off for both
+  const PREDICT_KEY = 'shuttlesticks.predict';
+  function savedPredict() {
+    try { return localStorage.getItem(PREDICT_KEY) !== '0'; } catch (e) { return true; }
+  }
   function roomScreen(kind) {
     const create = kind === 'create';
     let state = create ? 'connecting' : 'typing'; // connecting | waiting | typing | joining | error
@@ -610,6 +615,12 @@ const UI = (() => {
         SFX.play('click');
       }
     };
+    let predict = savedPredict();
+    const togglePredict = () => {
+      predict = !predict;
+      try { localStorage.setItem(PREDICT_KEY, predict ? '1' : '0'); } catch (e) { /* storage blocked */ }
+      SFX.play('click');
+    };
     const copy = () => {
       try {
         navigator.clipboard.writeText(code).then(() => { copied = time; }, () => {});
@@ -625,7 +636,7 @@ const UI = (() => {
           } else if (msg.t === 'paired') {
             keep = true;
             SFX.play('pop');
-            go(onlineSelect(msg.role, msg.code));
+            go(onlineSelect(msg.role, msg.code, predict));
           } else if (msg.t === 'error') {
             err = msg.msg;
             state = create ? 'error' : 'typing';
@@ -633,7 +644,8 @@ const UI = (() => {
         });
         if (create) NET.create();
         s.buttons = create
-          ? [btn('Copy code', 230, 300, 180, 38, copy, { primary: true }), btn('Cancel', 260, 350, 120, 34, back)]
+          ? [btn('Copy code', 230, 300, 180, 38, copy, { primary: true }), btn('Cancel', 260, 350, 120, 34, back),
+            btn(() => 'Prediction: ' + (predict ? 'On' : 'Off'), 245, 258, 150, 28, togglePredict, { size: 13 })]
           : [btn('Join', 230, 300, 180, 40, join, { primary: true }), btn('Back', 260, 350, 120, 34, back)];
       },
       leave() { if (!keep) NET.close(); },
@@ -641,6 +653,7 @@ const UI = (() => {
         const K = G.KEY;
         if (c === K.ESC) return back();
         if (create) {
+          if (c === K.P) togglePredict();
           if (c === K.ENTER && state === 'waiting') copy();
           if (c === K.ENTER && state === 'error') { state = 'connecting'; err = ''; NET.create(); }
           return;
@@ -683,8 +696,9 @@ const UI = (() => {
             ctx.fillRect(x + w / 2 - 1.5, 172, 3, 38);
           }
         }
-        if (err) text(ctx, err, 320, 254, 14, '#ff7675', 'center', 'bold');
-        else if (create && copied && time - copied < 1.5) text(ctx, 'Copied!', 320, 254, 14, '#7bed9f', 'center', 'bold');
+        if (err) text(ctx, err, 320, 242, 14, '#ff7675', 'center', 'bold');
+        else if (create && copied && time - copied < 1.5) text(ctx, 'Copied!', 320, 242, 14, '#7bed9f', 'center', 'bold');
+        if (create) text(ctx, predict ? 'Smooths over the delay: you see your opponent where they are now (P)' : 'You see exactly what has arrived, half a ping late (P)', 320, 296 - 6, 9, 'rgba(255,255,255,0.45)', 'center', 'normal');
         const hide = (b, h) => { b.hidden = h; };
         if (create) {
           hide(s.buttons[0], state !== 'waiting' && state !== 'error');
@@ -699,15 +713,16 @@ const UI = (() => {
 
   /* ======================================================== ONLINE: pick players */
   // Each player picks their own character and says they're ready; the host starts the match.
-  function onlineSelect(role, room) {
+  // predict: the creator's setting; the joiner learns it with 'go'
+  function onlineSelect(role, room, predict) {
     const me = role === 'host' ? 0 : 1, them = 1 - me;
     const picks = [null, null], ready = [false, false];
     let cursor = 0, keep = false, gone = null;
     const tiles = SELECT_2P.map((id, i) => ({ id, i, x: 40 + (i % 5) * 76, y: 64 + Math.floor(i / 5) * 88, w: 70, h: 82 }));
     const leave = () => go(titleScreen('online'));
-    const start = (p1, p2) => {
+    const start = (p1, p2, pred) => {
       keep = true;
-      go(onlineMatch(role, p1, p2));
+      go(onlineMatch(role, p1, p2, pred));
     };
     const pick = (i) => {
       if (gone || told) return;
@@ -737,7 +752,7 @@ const UI = (() => {
     const check = () => {
       if (role !== 'host' || !ready[0] || !ready[1] || told) return;
       told = true;
-      NET.send({ t: 'go', p1: picks[0], p2: picks[1] });
+      NET.send({ t: 'go', p1: picks[0], p2: picks[1], pred: predict });
     };
     const s = {
       enter() {
@@ -746,8 +761,8 @@ const UI = (() => {
           else if (msg.t === 'ready') { ready[them] = !!msg.on && !!picks[them]; check(); }
           else if (msg.t === 'go' && role === 'guest' && CHARS[msg.p1] && CHARS[msg.p2]) {
             NET.send({ t: 'going' });
-            start(msg.p1, msg.p2);
-          } else if (msg.t === 'going' && role === 'host' && told) start(picks[0], picks[1]);
+            start(msg.p1, msg.p2, msg.pred !== false);
+          } else if (msg.t === 'going' && role === 'host' && told) start(picks[0], picks[1], predict);
         });
         NET.onLeave((why) => { gone = why; SFX.play('thud'); });
         s.buttons = [
@@ -836,7 +851,7 @@ const UI = (() => {
 
   /* ======================================================== ONLINE: the match */
   // Each screen plays its own player (js/online.js); the host is on the left.
-  function onlineMatch(role, p1, p2) {
+  function onlineMatch(role, p1, p2, predict) {
     const host = role === 'host';
     let sync = null, overlay = null, gone = null;
     let asked = false, theyAsked = false;
@@ -869,7 +884,7 @@ const UI = (() => {
         SFX.music('game');
         match = new Match('peer', p1, p2, { matchOver() { openOverlay('over'); } });
         match.me = host ? 1 : 2;
-        sync = new PeerSync(match);
+        sync = new PeerSync(match, { predict });
         match.start();
         NET.listen((msg) => {
           if (msg.t === 'st') sync.stream(msg);
@@ -919,7 +934,7 @@ const UI = (() => {
           ctx.fill();
           ctx.restore();
         }
-        if (!gone) text(ctx, linkText(), 8, 12, 10, 'rgba(255,255,255,0.55)', 'left', 'bold');
+        if (!gone) text(ctx, linkText() + (predict ? '' : '  ·  no prediction'), 8, 12, 10, 'rgba(255,255,255,0.55)', 'left', 'bold');
         if (sync && sync.stalled > 90 && !overlay && !gone) {
           ctx.fillStyle = 'rgba(8,12,26,0.75)';
           rr(ctx, 190, 170, 260, 44, 10);
