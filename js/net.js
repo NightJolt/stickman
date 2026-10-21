@@ -3,13 +3,12 @@
  * Online 1v1 connection. A WebSocket to the room server (server/server.js) pairs two players by
  * room code. Then the two browsers try to connect to each other directly over WebRTC, using
  * that WebSocket to swap the connection offer and addresses (public STUN servers help each side
- * find its own). Once the direct channel is open, the fast traffic (snapshots, keys, pings)
- * goes straight between the players; the rest stays on the server, which relays it. If a direct
- * link can't be made (some mobile and office networks block it) or drops, everything simply
- * keeps going through the server.
- *
- * The direct channel is unordered and never resends, like UDP: a late snapshot is worthless
- * anyway, and nothing waits behind a lost one. js/online.js copes with gaps and reordering.
+ * find its own). Once the direct link is up, match traffic goes straight between the players
+ * over two channels: 'fast', unordered and never resent like UDP, for each player's movement
+ * and the pings (a late frame is worthless anyway, and nothing waits behind a lost one), and
+ * 'sure', reliable and in order, for hits, points and rematches. Picking players stays on the
+ * server, which relays it. If a direct link can't be made (some mobile and office networks
+ * block it) or drops, everything simply keeps going through the server.
  *
  * Screens take turns listening through NET.listen(); NET.onLeave() hears about the other player
  * leaving or the line dropping. The server is the page's own host at /ws, or localhost:8787 for
@@ -23,7 +22,8 @@ const NET = (() => {
     { urls: 'stun:stun.cloudflare.com:3478' },
   ];
   const DIRECT_WAIT = 10000;                  // ms to try for a direct link before settling
-  const FAST = new Set(['s', 'i', 'ping', 'pong']); // what goes over the direct channel
+  const FAST = new Set(['st', 'ping', 'pong']);     // direct and unreliable
+  const SURE = new Set(['hit', 'pt', 'rematch']);   // direct and reliable
   let ws = null;
   let listener = null;
   let leaveFn = null;
@@ -31,7 +31,7 @@ const NET = (() => {
   let pingTimer = null;
   let rtt = null;
   let pc = null;           // RTCPeerConnection
-  let dc = null;           // its data channel, once open
+  let chans = {};          // its open data channels: { fast, sure }
   let pendingIce = [];     // candidates that arrived before the offer/answer
   let directTimer = null;
   let path = 'relay';      // 'connecting' | 'direct' | 'relay'
@@ -50,9 +50,10 @@ const NET = (() => {
   }
 
   function send(obj) {
-    if (FAST.has(obj.t) && dc && dc.readyState === 'open') {
+    const ch = FAST.has(obj.t) ? chans.fast : SURE.has(obj.t) ? chans.sure : null;
+    if (ch && ch.readyState === 'open') {
       try {
-        dc.send(JSON.stringify(obj));
+        ch.send(JSON.stringify(obj));
         return;
       } catch (e) { /* fall through to the server */ }
     }
@@ -83,8 +84,10 @@ const NET = (() => {
   // The host makes the offer and the channel; the guest answers. Either way, if it isn't open
   // within DIRECT_WAIT the game stays on the server.
   function goDirect(role) {
-    if (typeof RTCPeerConnection === 'undefined') return;
-    try { pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }); } catch (e) { pc = null; return; }
+    // without WebRTC here, tell the other side not to wait for us
+    const cant = () => viaServer({ t: 'rtc', off: true });
+    if (typeof RTCPeerConnection === 'undefined') return cant();
+    try { pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }); } catch (e) { pc = null; return cant(); }
     path = 'connecting';
     pc.onicecandidate = (e) => { if (e.candidate) viaServer({ t: 'rtc', ice: e.candidate }); };
     pc.onconnectionstatechange = () => {
@@ -92,15 +95,19 @@ const NET = (() => {
     };
     const wire = (ch) => {
       ch.onopen = () => {
-        dc = ch;
-        path = 'direct';
-        clearTimeout(directTimer);
+        chans[ch.label] = ch;
+        if (chans.fast && chans.sure) {
+          path = 'direct';
+          clearTimeout(directTimer);
+        }
       };
-      ch.onclose = () => { if (dc === ch) dropDirect(); };
+      ch.onclose = () => { if (chans[ch.label] === ch) dropDirect(); };
       ch.onmessage = (e) => receive(e.data);
+      if (ch.readyState === 'open') ch.onopen(); // a channel handed over already open
     };
     if (role === 'host') {
-      wire(pc.createDataChannel('game', { ordered: false, maxRetransmits: 0 }));
+      wire(pc.createDataChannel('fast', { ordered: false, maxRetransmits: 0 }));
+      wire(pc.createDataChannel('sure'));
       pc.createOffer()
         .then((offer) => pc.setLocalDescription(offer))
         .then(() => viaServer({ t: 'rtc', sdp: pc.localDescription }))
@@ -113,6 +120,7 @@ const NET = (() => {
 
   function signal(msg) {
     if (!pc) return;
+    if (msg.off) return dropDirect();
     if (msg.sdp) {
       pc.setRemoteDescription(msg.sdp)
         .then(() => {
@@ -134,11 +142,12 @@ const NET = (() => {
   function dropDirect() {
     clearTimeout(directTimer);
     directTimer = null;
-    const p = pc, d = dc;
-    pc = dc = null;
+    const p = pc, open = Object.values(chans);
+    pc = null;
+    chans = {};
     pendingIce = [];
     if (paired) path = 'relay';
-    if (d) { d.onopen = d.onclose = d.onmessage = null; try { d.close(); } catch (e) { /* closed */ } }
+    for (const d of open) { d.onopen = d.onclose = d.onmessage = null; try { d.close(); } catch (e) { /* closed */ } }
     if (p) { p.onicecandidate = p.onconnectionstatechange = p.ondatachannel = null; try { p.close(); } catch (e) { /* closed */ } }
   }
 

@@ -703,7 +703,7 @@ const UI = (() => {
       go(onlineMatch(role, p1, p2));
     };
     const pick = (i) => {
-      if (gone) return;
+      if (gone || told) return;
       cursor = i;
       picks[me] = SELECT_2P[i];
       ready[me] = false;
@@ -712,23 +712,29 @@ const UI = (() => {
       SFX.play('click');
     };
     const toggleReady = () => {
-      if (gone || !picks[me]) return;
+      if (gone || told || !picks[me]) return;
       ready[me] = !ready[me];
       NET.send({ t: 'ready', on: ready[me] });
       SFX.play('click');
       check();
     };
+    // the host says go; the guest starts and answers, and the host starts on that answer, so
+    // neither game can serve before the other is there to see it
+    let told = false;
     const check = () => {
-      if (role !== 'host' || !ready[0] || !ready[1] || keep) return;
+      if (role !== 'host' || !ready[0] || !ready[1] || told) return;
+      told = true;
       NET.send({ t: 'go', p1: picks[0], p2: picks[1] });
-      start(picks[0], picks[1]);
     };
     const s = {
       enter() {
         NET.listen((msg) => {
-          if (msg.t === 'pick' && SELECT_2P.includes(msg.id)) { picks[them] = msg.id; ready[them] = false; }
+          if (msg.t === 'pick' && SELECT_2P.includes(msg.id)) { picks[them] = msg.id; ready[them] = false; told = false; }
           else if (msg.t === 'ready') { ready[them] = !!msg.on && !!picks[them]; check(); }
-          else if (msg.t === 'go' && role === 'guest' && CHARS[msg.p1] && CHARS[msg.p2]) start(msg.p1, msg.p2);
+          else if (msg.t === 'go' && role === 'guest' && CHARS[msg.p1] && CHARS[msg.p2]) {
+            NET.send({ t: 'going' });
+            start(msg.p1, msg.p2);
+          } else if (msg.t === 'going' && role === 'host' && told) start(picks[0], picks[1]);
         });
         NET.onLeave((why) => { gone = why; SFX.play('thud'); });
         s.buttons = [
@@ -808,7 +814,7 @@ const UI = (() => {
   }
 
   /* ======================================================== ONLINE: the match */
-  // The host runs the match and sends it to the guest every frame (js/online.js).
+  // Each screen plays its own player (js/online.js); the host is on the left.
   function onlineMatch(role, p1, p2) {
     const host = role === 'host';
     let sync = null, overlay = null, gone = null;
@@ -818,10 +824,10 @@ const UI = (() => {
       if (asked || gone) return;
       asked = true;
       NET.send({ t: 'rematch' });
-      if (host && theyAsked) restart();
+      if (theyAsked) restart();
     };
-    const restart = () => { // host: both want another
-      match.resetLevel();
+    const restart = () => { // both want another: each screen starts it
+      sync.restart();
       closeOverlay();
     };
     function closeOverlay() {
@@ -840,23 +846,21 @@ const UI = (() => {
       enter() {
         disposeMatch();
         SFX.music('game');
-        match = new Match(host ? 'online' : 'guest', p1, p2, {
-          matchOver() { openOverlay('over'); },
-          rematch() { closeOverlay(); },
-        });
+        match = new Match('peer', p1, p2, { matchOver() { openOverlay('over'); } });
+        match.me = host ? 1 : 2;
+        sync = new PeerSync(match);
         match.start();
-        sync = host ? new HostSync(match) : new GuestSync(match);
         NET.listen((msg) => {
-          if (msg.t === 's' && !host) sync.snapshot(msg);
-          else if (msg.t === 'i' && host) sync.input(msg);
+          if (msg.t === 'st') sync.stream(msg);
+          else if (msg.t === 'hit') sync.remoteHit(msg);
+          else if (msg.t === 'pt') sync.remotePoint(msg);
           else if (msg.t === 'rematch') {
             theyAsked = true;
-            if (host && asked) restart();
+            if (asked) restart();
           }
         });
         NET.onLeave((why) => {
           gone = why;
-          if (host) match.p2.remote = { l: false, r: false, u: false, s: false }; // let go of their keys
           SFX.play('thud');
           openOverlay('left');
         });
@@ -867,7 +871,7 @@ const UI = (() => {
         if (overlay && !overlay.fading && code === G.KEY.ENTER) overlay.buttons[0].onClick();
       },
       tick(dt) {
-        if (host && sync && !gone) sync.frame();
+        if (sync && !gone) sync.frame();
         if (!overlay) return;
         if (overlay.fading) {
           overlay.alpha -= 4.5 * dt;
@@ -879,7 +883,7 @@ const UI = (() => {
         if (!match) return;
         R.scene(ctx, match, scale);
         // which one is you
-        const p = host ? match.p1 : match.p2;
+        const p = match.local;
         if (p && !match.over) {
           const y = p.y - 1.25 * R.headHeight(p.id) - 30;
           ctx.save();
@@ -894,11 +898,11 @@ const UI = (() => {
           ctx.restore();
         }
         if (!gone) text(ctx, linkText(), 8, 12, 10, 'rgba(255,255,255,0.55)', 'left', 'bold');
-        if (!host && sync && sync.stalled > 45 && !overlay) {
+        if (sync && sync.stalled > 90 && !overlay && !gone) {
           ctx.fillStyle = 'rgba(8,12,26,0.75)';
-          rr(ctx, 200, 170, 240, 44, 10);
+          rr(ctx, 190, 170, 260, 44, 10);
           ctx.fill();
-          text(ctx, 'Waiting for the host' + '...'.slice(0, 1 + (Math.floor(time * 3) % 3)), 320, 192, 14, '#ffffff', 'center', 'bold');
+          text(ctx, 'Waiting for your opponent' + '...'.slice(0, 1 + (Math.floor(time * 3) % 3)), 320, 192, 14, '#ffffff', 'center', 'bold');
         }
         if (overlay) {
           const o = overlay;

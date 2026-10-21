@@ -28,12 +28,24 @@ and the creator's game starts the match. Both play with the single-player keys. 
 the left, and a YOU marker shows each player which side is theirs. Rematch needs both players to
 ask; if one leaves, the other is told.
 
-How it works: the creator's browser runs the real match (`js/online.js`). The other player
-sends their keys and draws the snapshot the host sends every frame (about 6 KB/s), a few frames
-behind the newest one so network jitter doesn't show. That buffer starts at 3 frames, grows when
-snapshots run late, and shrinks again on a steady line. Running one simulation keeps both screens
-in agreement. The cost is that the joining player's own moves show up one round trip, plus the
-buffer, after they press.
+How it works (`js/online.js`): each screen runs the match and is in charge of its own player,
+so both players move, jump and swing with no delay. Your own game decides whether your racket met
+the shuttle. When it did, the launch (contact point, power, angle) goes to the other screen,
+which launches the same shot and fast-forwards it by half the ping, so it's where it really is.
+The shuttle belongs to the player it's flying to: only they can hit it next, and only their game
+decides where it came down and who won the point, so the two screens never award different
+points. (Online only: you can't hit your own shot again after it bounces back off the net.) Each
+screen draws the other player from the movement they send every frame, a couple of frames behind
+so network jitter doesn't show. The only sign of the connection is right after your opponent hits:
+the shuttle jumps ahead by half the ping.
+
+After pairing, the two browsers try to connect directly over WebRTC (`js/net.js`). The room
+server passes the connection setup between them, and public STUN servers (Google, Cloudflare)
+tell each side its public address. Match traffic then goes straight between the players over two
+channels: an unordered one that never resends, for movement and pings, and a reliable one for
+hits, points and rematches. Picking players stays on the server. If no direct link forms within
+10 seconds, or it drops, the game keeps going through the server as before. Some mobile and office networks block direct links. The corner of the
+screen says which is in use: "Direct" or "Relayed", with the ping.
 
 The room server (`server/server.js`) only pairs players by code and passes messages between
 them. It needs Node 18 or newer and no packages.

@@ -35,6 +35,7 @@ class Shuttle {
     m.sfx('hit', power);
     G.applyDir(this);
     this.landX = Shuttle.predictLanding(this.x, this.y, this.dx, this.dy);
+    if (m.peer) m.peer.hit(this, power, dir, kind);
   }
 
   // Where a shuttle at (px, py) moving (vx, vy) lands: fixed 1/60 s steps, walls and net body only.
@@ -177,8 +178,7 @@ class Player {
     this.overhead = false;
     this.hitLive = false;
     this.power = 1;
-    this.controls = 0;         // 0 = solo keys, 1 = P1 (WASD), 2 = P2 (arrows), 3 = online
-    this.remote = null;        // an online opponent's keys: { l, r, u, s }
+    this.controls = 0;         // 0 = solo keys, 1 = P1 (WASD), 2 = P2 (arrows)
     this.state = 'normal';     // normal | forward | backward | jump
     this.underShift = 0;       // temporary hitbox y shift (player-local px)
     this.brain = null;         // computer players: js/ai.js
@@ -322,6 +322,8 @@ class Player {
     const m = this.m;
     const s = m.shuttle;
     if (!this.active || !s || !this.hitLive) return;
+    // online: only the player the shuttle is flying to may hit it, on their own screen
+    if (m.mode === 'peer' && (m.owner !== m.me || this !== m.local)) return;
     if (!G.inBox(this.racketBox(), s.x, s.y)) return;
     const f = this.frame();
     this.hitLive = false;
@@ -392,8 +394,7 @@ class Player {
     this.anim += dt;
   }
 
-  // gravity, movement, court limits and landing for one frame (also replayed by an online
-  // guest to show its own moves before the host has them: js/online.js)
+  // gravity, movement, court limits and landing for one frame
   integrate(dt) {
     if (this.inAir) {
       this.dy += G.GRAVITY * dt;
@@ -425,9 +426,7 @@ class Player {
       up = [K.UP]; swing = [K.DOWN]; left = [K.LEFT]; right = [K.RIGHT];
     }
     const any = (list) => list.some(G.isDown);
-    // controls 3: an online opponent, whose keys arrive over the network (js/online.js)
-    const rk = this.controls === 3 ? this.remote : null;
-    const u = rk ? rk.u : any(up), s = rk ? rk.s : any(swing), l = rk ? rk.l : any(left), r = rk ? rk.r : any(right);
+    const u = any(up), s = any(swing), l = any(left), r = any(right);
     this.steer(l, r, u);
     if (s) {
       if (!this.swingHeld) {
@@ -475,13 +474,13 @@ class Player {
 class Match {
   // mode: 'solo' (tournament), 'cpu' (1v1 against a computer player of your choice), 'versus'
   // (two players), 'training' (against the shot machine), 'demo' (two computer players rallying
-  // behind the title screen, silent and endless), or for Online 1v1 'online' (the host's real
-  // match) and 'guest' (the other player's copy, driven by the host's snapshots; js/online.js).
-  // `level` is the 1v1 opponent's CPU_LEVELS index.
+  // behind the title screen, silent and endless) or 'peer' (Online 1v1: this screen's player
+  // against one playing on another screen; js/online.js). `level` is the 1v1 opponent's
+  // CPU_LEVELS index.
   constructor(mode, p1Id, p2Id, hooks, level = 1) {
     this.mode = mode;
     this.level = level;
-    this.silent = mode === 'demo' || mode === 'guest'; // a guest plays the sounds the host sends
+    this.silent = mode === 'demo';
     this.p1Id = p1Id;
     this.p2Id = p2Id || null;
     this.hooks = hooks;          // UI callbacks
@@ -504,9 +503,13 @@ class Match {
     this.net = new G.Clip(24, {});
     this.bubble = null;
     this.machine = mode === 'training' ? new ShotMachine(this) : null;
-    this.shuttleSeq = 0;        // shuttles spawned (online: tells the guest a new one is in play)
-    this.hostSync = null;       // online host: HostSync
-    this.guestSync = null;      // online guest: GuestSync
+    this.shuttleSeq = 0;        // shuttles spawned
+    this.rallyDue = false;      // a new rally is on its way
+    // Online 1v1 ('peer'): which player is on this screen, whose game decides the shuttle (the
+    // player it is flying to; 0 = nobody) and the PeerSync talking to the other screen
+    this.me = 1;
+    this.owner = 0;
+    this.peer = null;
     this._update = (dt) => this.update(dt);
   }
 
@@ -530,14 +533,11 @@ class Match {
       this.greet();
       this.newRally();
       this.banner();
-    } else if (this.mode === 'online' || this.mode === 'guest') {
+    } else if (this.mode === 'peer') {
       this.setupPlayer2();
-      this.p2.controls = 3;
-      G.pauseAllowed = false; // a pause would stop both screens
-      if (this.mode === 'online') {
-        this.newRally();
-        this.banner();
-      }
+      G.pauseAllowed = false; // a pause would stop only one screen
+      this.newRally();
+      this.banner();
     } else if (this.mode === 'demo') {
       this.p2 = this.cpuPlayer(this.p2Id, 500, -1, G.pick(ROUND_AI));
       this.server = G.chance(50) ? 1 : 2;
@@ -603,7 +603,7 @@ class Match {
   }
 
   resetLevel() {
-    G.pauseAllowed = this.mode !== 'online';
+    G.pauseAllowed = this.mode !== 'peer';
     this.flawless = true;
     if (this.mode !== 'solo') {
       this.over = false;
@@ -618,9 +618,13 @@ class Match {
   }
 
   // what is being played: on the opening banner and under the score
+  // online: this screen's player and the other one
+  get local() { return this.me === 1 ? this.p1 : this.p2; }
+  get remote() { return this.me === 1 ? this.p2 : this.p1; }
+
   title() {
     if (this.mode === 'versus') return 'Exhibition';
-    if (this.mode === 'online' || this.mode === 'guest') return 'Online';
+    if (this.mode === 'peer') return 'Online';
     if (this.mode === 'cpu') return '1v1  ·  ' + CPU_LEVELS[this.level].name;
     return ROUND_NAMES[this.round - 1] || '';
   }
@@ -628,10 +632,11 @@ class Match {
   banner() {
     if (this.machine) return this.fx.banner('Training', CHARS[this.p1Id].name, 'Shot Machine');
     this.fx.banner(this.title(), CHARS[this.p1Id].name, CHARS[this.p2Id].name);
-    if (this.hostSync) this.hostSync.event('banner', this.title(), CHARS[this.p1Id].name, CHARS[this.p2Id].name);
   }
 
   newRally() {
+    this.rallyDue = false;
+    this.owner = 0;
     if (this.shuttle) {
       this.shuttle.remove();
       this.shuttle = null;
@@ -647,9 +652,16 @@ class Match {
     this.shuttleSeq++;
   }
 
-  point(side) {
+  // side: 1 if player 1 won the point. Online, only the game of the player the shuttle was
+  // flying to decides; `sure` marks a point the other screen decided.
+  point(side, sure) {
     if (!this.rallyLive) return;
     if (this.machine) return this.machine.landed(side);
+    if (this.mode === 'peer' && !sure) {
+      if (this.owner !== this.me) return;
+      this.peer.point(side);
+    }
+    this.owner = 0;
     this.sfx('ding');
     this.rallyLive = false;
     if (side === 1) {
@@ -664,15 +676,17 @@ class Match {
     if (this.mode !== 'solo') { // a single match (the title-screen demo never ends)
       if (this.mode !== 'demo' && (this.score1 >= WIN || this.score2 >= WIN)) {
         const p1Won = this.score1 > this.score2;
-        const mine = this.mode === 'cpu' || this.mode === 'online'; // told from player 1's side
+        const mine = this.mode === 'cpu' || this.mode === 'peer'; // told from this screen's side
+        const won = this.me === 2 ? !p1Won : p1Won;
         this.over = true;
-        this.celebrating = this.mode !== 'cpu' || p1Won;
-        this.sfx(mine && !p1Won ? 'sigh' : 'cheer');
-        if (mine) this.status = p1Won ? 'You Win' : 'Good Try';
+        this.celebrating = this.mode !== 'cpu' || won;
+        this.sfx(mine && !won ? 'sigh' : 'cheer');
+        if (mine) this.status = won ? 'You Win' : 'Good Try';
         else this.status = p1Won ? 'P1 Wins' : 'P2 Wins';
         this.hooks.matchOver(this, 'versus');
       } else {
-        G.setTimeout(() => this.newRally(), 1500);
+        this.rallyDue = true;
+        G.setTimeout(() => { if (this.rallyDue) this.newRally(); }, 1500);
       }
       return;
     }
@@ -695,10 +709,14 @@ class Match {
   }
 
   update(dt) {
-    if (this.guestSync) return this.guestSync.update(dt);
-    if (this.p1) this.p1.update(dt);
-    if (this.p2) this.p2.update(dt);
+    if (this.mode === 'peer') {
+      this.local.update(dt); // the other player is drawn from their screen's messages
+    } else {
+      if (this.p1) this.p1.update(dt);
+      if (this.p2) this.p2.update(dt);
+    }
     if (this.shuttle) this.shuttle.update(dt);
+    if (this.peer) this.peer.update(dt);
     if (this.machine) this.machine.update(dt);
     if (!this.over) this.status = this.score1 + ' - ' + this.score2;
     if (this.celebrating && G.chance(70)) this.fx.confetti();
@@ -707,7 +725,6 @@ class Match {
 
   sfx(name, arg) {
     if (!this.silent) SFX.play(name, arg);
-    if (this.hostSync) this.hostSync.event('sfx', name, arg);
   }
 
   // mouse press during play (mouse flyers swing on click)
