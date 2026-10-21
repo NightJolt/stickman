@@ -30,20 +30,25 @@ ask; if one leaves, the other is told.
 
 How it works (`js/online.js`): each screen runs the match and is in charge of its own player,
 so both players move, jump and swing with no delay. Your own game decides whether your racket met
-the shuttle. When it did, the launch (contact point, power, angle) goes to the other screen,
-which launches the same shot and fast-forwards it by half the ping, so it's where it really is.
+the shuttle. When it did, the launch (contact point, power, angle) goes to the other screen, which
+launches the same shot from the same moment.
+
 One game at a time owns the shuttle: only that player can hit it, and only that game decides
 where it came down and who won the point, so the two screens never award different points. A shot
 heading over the net belongs to the opponent from the moment it's hit, so they can return it
 without waiting. One that will come down on the hitter's side (a mishit, a serve into the net)
 stays the hitter's to hit again. If the flight surprises the owner (a roll over the tape, a bounce
-back off the net), it hands the shuttle over when it actually crosses. Each screen draws the other
-player where they are now: their position, speed and held keys, run forward by half the ping
-through the same movement code. A sudden change of direction shows as a short correction, eased
-out. Their swings and hits can't be guessed, so they arrive half a ping late. Rather than jump,
-the swing plays at double speed from where it was until it has caught up, and the shuttle is
-drawn gliding from where it was on screen onto its new flight over a few frames. Only the drawing
-glides; the flight itself is exact, so your return is judged on where the shuttle really is.
+back off the net), it hands the shuttle over when it actually crosses.
+
+Each screen shows two clocks: your half of the court as it is now, the opponent's as it was half a
+ping ago, which is the newest anyone can know of it. After your hit the shuttle is drawn a little
+slower (0.65x) until it has fallen half a ping behind, so when their hit arrives the screen is
+just reaching that moment and the shuttle turns at their racket, in step with their swing. On its
+way back it's drawn a little faster (1.5x) until it's back to now, well before it reaches you.
+Only the drawing runs on their clock; the flight itself is always where it really is, so your
+return is judged on that. The opponent is drawn on the same clock: as they last were while the
+shuttle is theirs, and run forward to now (from their speed and held keys, through the same
+movement code) while it's yours.
 
 After pairing, the two browsers try to connect directly over WebRTC (`js/net.js`). The room
 server passes the connection setup between them, and public STUN servers (Google, Cloudflare)
