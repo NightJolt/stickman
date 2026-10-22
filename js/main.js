@@ -3,18 +3,23 @@
 (() => {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  let scale = 1;
+  // The canvas fills the window. The 640x426 stage is scaled to fit inside it and centred; the
+  // room either side shows more of the arena (G.view), so gameplay sizes never change.
+  let scale = 1;            // device px per stage px
+  let fit = 1, offX = 0, offY = 0; // CSS px per stage px, and where the stage starts
 
   function resize() {
     const vw = window.innerWidth, vh = window.innerHeight;
-    const s = Math.min(vw / G.W, vh / G.H);
-    const cw = Math.floor(G.W * s), ch = Math.floor(G.H * s);
     const dpr = window.devicePixelRatio || 1;
-    canvas.style.width = cw + 'px';
-    canvas.style.height = ch + 'px';
-    canvas.width = Math.round(cw * dpr);
-    canvas.height = Math.round(ch * dpr);
-    scale = (cw * dpr) / G.W;
+    fit = Math.min(vw / G.W, vh / G.H);
+    offX = (vw - G.W * fit) / 2;
+    offY = (vh - G.H * fit) / 2;
+    canvas.style.width = vw + 'px';
+    canvas.style.height = vh + 'px';
+    canvas.width = Math.round(vw * dpr);
+    canvas.height = Math.round(vh * dpr);
+    scale = fit * dpr;
+    G.view = { x0: -offX / fit, y0: -offY / fit, x1: G.W + offX / fit, y1: G.H + offY / fit };
   }
   window.addEventListener('resize', resize);
   resize();
@@ -22,7 +27,7 @@
   /* ---------- input ---------- */
   function toStage(e) {
     const r = canvas.getBoundingClientRect();
-    return [((e.clientX - r.left) * G.W) / r.width, ((e.clientY - r.top) * G.H) / r.height];
+    return [(e.clientX - r.left - offX) / fit, (e.clientY - r.top - offY) / fit];
   }
   canvas.addEventListener('pointermove', (e) => {
     const [x, y] = toStage(e);
@@ -93,8 +98,10 @@
       G.enterFrame(t);
       UI.tick((t - prev) / 1000);
     }
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    ctx.clearRect(0, 0, G.W, G.H);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, offX * dpr, offY * dpr);
     UI.draw(ctx, scale);
   }
 

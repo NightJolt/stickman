@@ -34,7 +34,9 @@
   const FAST = 0.5;     // and how much faster while catching back up to ours
   const MAX_LAG = 250;  // ms: never draw their side further back than this
   const SNAP = 40;      // px: a correction to their figure bigger than this jumps instead of easing
-  const STUCK = 240;    // frames a landed shuttle waits for the other screen's verdict
+  // frames a landed shuttle waits for the other screen's verdict before this one calls it; the
+  // host calls it first, so the two screens can't both call the same point
+  const STUCK = [0, 240, 480];
   const r2 = (v) => Math.round(v * 100) / 100;
 
   class PeerSync {
@@ -85,6 +87,7 @@
       if (msg.r !== this.rally()) return; // a rally that's already over here
       if (m.rallyDue) m.newRally();       // their serve beat our countdown
       if (!m.rallyLive) return;
+      if (m.shuttle && msg.n <= m.shuttle.hits) return; // the second copy of a hit we have
       if (msg.n === 1 || !m.shuttle) {
         m.spawnShuttle(msg.x, msg.y);
         this.lag = this.oneWay(); // a new shuttle (their serve): draw it from their racket
@@ -111,6 +114,9 @@
     remoteHandOver(msg) {
       const m = this.m, s = m.shuttle;
       if (msg.r !== this.rally() || !s || !m.rallyLive || msg.n !== s.hits) return;
+      if (this.handed === s.hits && this.handedShuttle === s) return; // the second copy
+      this.handed = s.hits;
+      this.handedShuttle = s;
       this.rewind(s, () => Object.assign(s, { x: msg.x, y: msg.y, dx: msg.dx, dy: msg.dy, speed: msg.speed, dir: msg.dir, rotation: msg.dir }));
       m.owner = m.me;
     }
@@ -223,7 +229,7 @@
       // a shuttle that came down on their side waits for their verdict; if their screen has
       // gone quiet, call it here so the rally can't hang
       if (s && m.rallyLive && m.owner !== m.me && s.y >= G.GROUND) {
-        if (++this.waiting > STUCK) {
+        if (++this.waiting > STUCK[m.me]) {
           this.waiting = 0;
           m.owner = m.me;
           m.point(s.x > G.NET_X ? 1 : 2);

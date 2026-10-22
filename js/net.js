@@ -6,9 +6,11 @@
  * find its own). Once the direct link is up, match traffic goes straight between the players
  * over two channels: 'fast', unordered and never resent like UDP, for each player's movement
  * and the pings (a late frame is worthless anyway, and nothing waits behind a lost one), and
- * 'sure', reliable and in order, for hits, points and rematches. Picking players stays on the
- * server, which relays it. If a direct link can't be made (some mobile and office networks
- * block it) or drops, everything simply keeps going through the server.
+ * 'sure', reliable and in order, for hits and points. Those also go through the server every
+ * time, so one can't be lost if the direct link drops while it's on the way; js/online.js
+ * ignores whichever copy arrives second. Picking players and rematches stay on the server. If a
+ * direct link can't be made (some mobile and office networks block it) or drops, everything
+ * simply keeps going through the server.
  *
  * Screens take turns listening through NET.listen(); NET.onLeave() hears about the other player
  * leaving or the line dropping. The server is the page's own host at /ws, or localhost:8787 for
@@ -23,7 +25,7 @@ const NET = (() => {
   ];
   const DIRECT_WAIT = 10000;                  // ms to try for a direct link before settling
   const FAST = new Set(['st', 'ping', 'pong']);     // direct and unreliable
-  const SURE = new Set(['hit', 'own', 'pt', 'rematch']); // direct and reliable
+  const SURE = new Set(['hit', 'own', 'pt']);        // direct and reliable, and via the server too
   let ws = null;
   let listener = null;
   let leaveFn = null;
@@ -57,7 +59,7 @@ const NET = (() => {
     if (ch && ch.readyState === 'open') {
       try {
         ch.send(JSON.stringify(obj));
-        return;
+        if (FAST.has(obj.t)) return;
       } catch (e) { /* fall through to the server */ }
     }
     viaServer(obj);

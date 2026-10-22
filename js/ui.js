@@ -135,7 +135,7 @@ const UI = (() => {
         if (demo) R.scene(ctx, demo, scale);
         else R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.45)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         // logo
         ctx.save();
         ctx.translate(320, 110);
@@ -144,7 +144,7 @@ const UI = (() => {
         text(ctx, 'STICKS', 0, 32, 58, '#ffffff', 'center', '900', '#1b1b24', 10);
         ctx.restore();
         text(ctx, MENUS[menu].caption, 320, 192, 14, '#c9d6ee', 'center', 'bold');
-        text(ctx, buildText(), 12, 412, 10, 'rgba(255,255,255,0.45)', 'left', 'bold');
+        text(ctx, buildText(), G.view.x0 + 12, G.view.y1 - 14, 10, 'rgba(255,255,255,0.45)', 'left', 'bold');
         drawButtons(ctx, s.buttons);
       },
     };
@@ -224,7 +224,7 @@ const UI = (() => {
       draw(ctx, scale) {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         text(ctx, mode === 'training' ? 'Training: pick a player' : mode === 'cpu' ? '1v1: pick your player' : 'Choose your player', 222, 30, 22, '#ffd166');
         for (const t of tiles) {
           const on = t.i === sel;
@@ -484,7 +484,7 @@ const UI = (() => {
   function bracketBackdrop(ctx, scale) {
     R.background(ctx, scale);
     ctx.fillStyle = 'rgba(8,12,26,0.84)';
-    ctx.fillRect(0, 0, G.W, G.H);
+    R.cover(ctx);
   }
 
   function bracketScreen(p1) {
@@ -543,7 +543,7 @@ const UI = (() => {
       draw(ctx, scale) {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         const head = picks.length === 0 ? '- Selecting Player 1 -' : picks.length === 1 ? '- Selecting Player 2 -' : 'Ready to play!';
         text(ctx, head, 230, 34, 22, '#ffd166');
         tiles.forEach((t) => {
@@ -669,7 +669,7 @@ const UI = (() => {
       draw(ctx, scale) {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.78)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         text(ctx, create ? 'Create Room' : 'Join Room', 320, 60, 30, '#ffd166', 'center', '900', '#1b1b24', 6);
         let line = '';
         if (create) {
@@ -787,7 +787,7 @@ const UI = (() => {
       draw(ctx, scale) {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         text(ctx, 'Online 1v1: pick your player', 230, 34, 22, '#ffd166');
         text(ctx, 'Room ' + room + '   ·   ' + linkText(), 620, 18, 11, 'rgba(255,255,255,0.5)', 'right', 'bold');
         tiles.forEach((t) => {
@@ -1014,7 +1014,7 @@ const UI = (() => {
       draw(ctx, scale) {
         R.background(ctx, scale);
         ctx.fillStyle = 'rgba(8,12,26,0.72)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         text(ctx, '1v1: pick your opponent', 222, 30, 22, '#ffd166');
         for (const t of tiles) {
           const on = t.i === sel;
@@ -1170,7 +1170,7 @@ const UI = (() => {
           drawBracket(ctx, { p1: match.p1Id, won: match.round - 1, results: match.results, cur: match.round, panel: 'now', score: match.score1 + ' – ' + match.score2 });
         } else if (G.paused) {
           ctx.fillStyle = 'rgba(8,12,26,0.6)';
-          ctx.fillRect(0, 0, G.W, G.H);
+          R.cover(ctx);
           text(ctx, 'PAUSED', 320, 190, 40, '#ffffff', 'center', '900', '#1b1b24', 8);
           text(ctx, 'P to resume  ·  Esc for menu  ·  M sound', 320, 232, 14, '#c9d6ee', 'center', 'normal');
         }
@@ -1224,7 +1224,7 @@ const UI = (() => {
         text(ctx, 'Final score ' + res.s1 + ' - ' + res.s2, 320, 200, 14, '#dfe7f5', 'center', 'normal');
       } else if (o.kind === 'lost') {
         ctx.fillStyle = 'rgba(8,12,26,0.88)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         text(ctx, 'Good Try', 320, 96, 44, '#ffffff', 'center', '900', '#1b1b24', 8);
         text(ctx, (ROUND_NAMES[res.round - 1] || 'Match') + ':  ' + CHARS[res.opp].name + ' wins ' + res.s2 + ' - ' + res.s1, 320, 146, 15, '#c9d6ee', 'center', 'normal');
         text(ctx, 'Shake it off and run it back.', 320, 172, 13, '#9fb3d1', 'center', 'normal');
@@ -1232,7 +1232,7 @@ const UI = (() => {
         R.figure(ctx, res.opp, 510, 360, 1.3, { t: time, flip: true });
       } else {
         ctx.fillStyle = 'rgba(8,12,26,0.9)';
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
         text(ctx, 'CHAMPION!', 320, 58, 50, '#ffd166', 'center', '900', '#1b1b24', 10);
         text(ctx, CHARS[match.p1Id].name + ' wins the ' + CUP + '.', 320, 102, 16, '#ffffff', 'center', 'bold');
         R.figure(ctx, match.p1Id, 290, 312, 1.45, { t: time, frame: 1 + (Math.floor(time * 30) % RIGS[CHARS[match.p1Id].rig].over.n) });
@@ -1296,7 +1296,7 @@ const UI = (() => {
       }
       if (fade.a > 0) {
         ctx.fillStyle = `rgba(6,8,18,${fade.a})`;
-        ctx.fillRect(0, 0, G.W, G.H);
+        R.cover(ctx);
       }
     },
     key(code) {

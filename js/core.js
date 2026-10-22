@@ -12,6 +12,9 @@ const G = (window.G = {});
 
 G.W = 640;
 G.H = 426;
+// What the window shows, in stage coordinates: the whole stage, plus whatever spare room the
+// window's shape leaves on either side (drawn as more arena; main.js keeps it up to date).
+G.view = { x0: 0, y0: 0, x1: G.W, y1: G.H };
 G.FPS = 60;
 G.GROUND = 400;      // floor line
 G.WALL = 33;         // invisible side walls

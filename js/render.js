@@ -52,21 +52,27 @@ const R = (() => {
   }
 
   /* ------------------------------------------------------------ background */
-  function buildBackground(scale) {
+  // The hall, drawn across the whole visible area v (G.view): the court sits on the stage as
+  // always, and the walls, windows, lights, crowd, boards and floor carry on to the window's edges.
+  function buildBackground(scale, v) {
     const c = document.createElement('canvas');
-    c.width = Math.round(G.W * scale);
-    c.height = Math.round(G.H * scale);
+    const vw = v.x1 - v.x0, vh = v.y1 - v.y0;
+    c.width = Math.round(vw * scale);
+    c.height = Math.round(vh * scale);
     const ctx = c.getContext('2d');
     ctx.scale(scale, scale);
+    ctx.translate(-v.x0, -v.y0);
+    const mod = (a, n) => ((a % n) + n) % n;
+    const from = (start, step) => start + step * Math.floor((v.x0 - start) / step) - step; // repeats reaching v.x0
     // hall wall
     let g = ctx.createLinearGradient(0, 0, 0, 400);
     g.addColorStop(0, '#1f2a44');
     g.addColorStop(0.55, '#33476b');
     g.addColorStop(1, '#4b6288');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, G.W, 400);
+    ctx.fillRect(v.x0, v.y0, vw, 400 - v.y0);
     // tall windows with evening sky
-    for (let i = 0; i < 5; i++) {
+    for (let i = Math.floor((v.x0 - 62) / 112) - 1; 62 + i * 112 < v.x1; i++) {
       const x = 62 + i * 112, y = 54, w = 76, h = 150;
       const sky = ctx.createLinearGradient(0, y, 0, y + h);
       sky.addColorStop(0, '#f6a76b');
@@ -85,12 +91,12 @@ const R = (() => {
       // distant city silhouette
       ctx.fillStyle = 'rgba(40,30,70,0.55)';
       for (let b = 0; b < 6; b++) {
-        const bh = 14 + ((i * 7 + b * 13) % 30);
+        const bh = 14 + mod(i * 7 + b * 13, 30);
         ctx.fillRect(x + b * 13, y + h - bh, 11, bh);
       }
     }
     // ceiling lights
-    for (let i = 0; i < 4; i++) {
+    for (let i = Math.floor((v.x0 - 110) / 140) - 1; 110 + (i - 1) * 140 < v.x1; i++) {
       const x = 110 + i * 140;
       const lg = ctx.createRadialGradient(x, 18, 2, x, 18, 120);
       lg.addColorStop(0, 'rgba(255,240,200,0.35)');
@@ -106,16 +112,16 @@ const R = (() => {
     g.addColorStop(0, '#2a3657');
     g.addColorStop(1, '#222c47');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 238, G.W, 92);
+    ctx.fillRect(v.x0, 238, vw, 92);
     for (let r = 0; r < 4; r++) {
       ctx.fillStyle = r % 2 ? '#26314f' : '#2e3b5e';
-      ctx.fillRect(0, 244 + r * 22, G.W, 18);
+      ctx.fillRect(v.x0, 244 + r * 22, vw, 18);
     }
     // crowd heads
     const hues = [12, 40, 200, 160, 280, 330, 90];
     for (let r = 0; r < 4; r++) {
-      for (let x = 8 + (r % 2) * 9; x < G.W; x += 18) {
-        const k = (x * 7 + r * 31) % 97;
+      for (let x = from(8 + (r % 2) * 9, 18); x < v.x1 + 18; x += 18) {
+        const k = mod(x * 7 + r * 31, 97);
         if (k < 30) continue;
         ctx.fillStyle = `hsl(${hues[k % hues.length]},35%,${38 + (k % 15)}%)`;
         ctx.beginPath();
@@ -132,14 +138,14 @@ const R = (() => {
     g.addColorStop(0, '#16213a');
     g.addColorStop(1, '#0f172b');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 332, G.W, 40);
+    ctx.fillRect(v.x0, 332, vw, 40);
     const boards = ['SHUTTLE STICKS', 'FEATHER CUP', 'SMASH OPEN', 'STICK LEAGUE'];
-    for (let i = 0; i < 4; i++) {
+    for (let i = Math.floor((v.x0 - 12) / 158) - 1; 12 + i * 158 < v.x1; i++) {
       const x = 12 + i * 158;
-      ctx.fillStyle = ['#2b6cb0', '#c05621', '#2f855a', '#9b2c2c'][i];
+      ctx.fillStyle = ['#2b6cb0', '#c05621', '#2f855a', '#9b2c2c'][mod(i, 4)];
       rr(ctx, x, 337, 146, 30, 4);
       ctx.fill();
-      text(ctx, boards[i], x + 73, 352, 13, 'rgba(255,255,255,0.85)', 'center', 'bold');
+      text(ctx, boards[mod(i, 4)], x + 73, 352, 13, 'rgba(255,255,255,0.85)', 'center', 'bold');
     }
     // floor
     g = ctx.createLinearGradient(0, 372, 0, G.H);
@@ -147,13 +153,15 @@ const R = (() => {
     g.addColorStop(0.3, '#c98d55');
     g.addColorStop(1, '#a8703f');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 372, G.W, G.H - 372);
+    ctx.fillRect(v.x0, 372, vw, v.y1 - 372);
     ctx.strokeStyle = 'rgba(80,45,20,0.25)';
     ctx.lineWidth = 1;
-    for (let y = 380; y < G.H; y += 9) line(ctx, 0, y, G.W, y);
-    for (let i = 0; i < 40; i++) {
-      const y = 376 + (i % 6) * 9, x = (i * 97) % G.W;
-      line(ctx, x, y, x, y + 9);
+    for (let y = 380; y < v.y1; y += 9) line(ctx, v.x0, y, v.x1, y);
+    for (let tile = Math.floor(v.x0 / G.W); tile * G.W < v.x1; tile++) { // plank joints, one stage-width at a time
+      for (let i = 0; i < 40; i++) {
+        const y = 376 + (i % 6) * 9, x = tile * G.W + ((i * 97) % G.W);
+        line(ctx, x, y, x, y + 9);
+      }
     }
     // court surface strip + lines
     ctx.fillStyle = 'rgba(46,125,90,0.55)';
@@ -182,11 +190,17 @@ const R = (() => {
     return c;
   }
   function background(ctx, scale) {
-    if (!bg || bgScale !== scale) {
-      bg = buildBackground(scale);
-      bgScale = scale;
+    const v = G.view, key = [scale, v.x0, v.y0, v.x1, v.y1].join();
+    if (!bg || bgScale !== key) {
+      bg = buildBackground(scale, v);
+      bgScale = key;
     }
-    ctx.drawImage(bg, 0, 0, G.W, G.H);
+    ctx.drawImage(bg, v.x0, v.y0, v.x1 - v.x0, v.y1 - v.y0);
+  }
+  // fill the whole window (a dimmed menu, a fade) in the current fill style
+  function cover(ctx) {
+    const v = G.view;
+    ctx.fillRect(v.x0, v.y0, v.x1 - v.x0, v.y1 - v.y0);
   }
 
   /* ------------------------------------------------------------ net */
@@ -1287,6 +1301,6 @@ const R = (() => {
     return d;
   }
 
-  return { rr, text, line, scene, figure, headHeight, background, drawShuttleShape, FONT, INK };
+  return { rr, text, line, scene, figure, headHeight, background, cover, drawShuttleShape, FONT, INK };
 })();
 window.R = R;
