@@ -40,15 +40,32 @@ without waiting. One that will come down on the hitter's side (a mishit, a serve
 stays the hitter's to hit again. If the flight surprises the owner (a roll over the tape, a bounce
 back off the net), it hands the shuttle over when it actually crosses.
 
-Each screen shows two clocks: your half of the court as it is now, the opponent's as it was half a
-ping ago, which is the newest anyone can know of it. After your hit the shuttle is drawn a little
-slower (0.65x) until it has fallen half a ping behind, so when their hit arrives the screen is
-just reaching that moment and the shuttle turns at their racket, in step with their swing. On its
-way back it's drawn a little faster (1.5x) until it's back to now, well before it reaches you.
-Only the drawing runs on their clock; the flight itself is always where it really is, so your
-return is judged on that. The opponent is drawn on the same clock: as they last were while the
-shuttle is theirs, and run forward to now (from their speed and held keys, through the same
-movement code) while it's yours.
+The two games keep their clocks in step (pings four times a second, timed from the quickest
+exchanges), and every message says when it happened. Each screen shows two clocks. Your half of
+the court is drawn as it is now. The opponent is drawn a little in the past: just far enough back
+that, in 95% of recent frames, their news for that moment had already arrived (about the one-way
+delay plus a frame). Both games step on the same 60 fps timeline, so each frame of the opponent is
+one their own screen drew, with the position and swing frame it showed. So their figure is never
+a guess. It's their own recorded movement and swing, replayed at normal speed, and it doesn't jump
+when news comes in. When the delay changes, the drawing eases onto other frames of theirs rather
+than skipping or repeating one. The rare frame that runs ahead of the news is run on from their
+held keys and eased back.
+
+The shuttle switches between the two clocks during each flight. After your hit, its drawing
+gradually slows to fall back onto their clock by the time they could first reach it. So when their
+hit arrives the screen is just reaching that moment, and the shuttle turns at their racket on the
+very frame their racket met it. After their hit it gradually speeds back to now before you could
+first reach it. How long each change takes comes from the flight itself: where the shuttle will
+be, where each player stands, and how fast they can run and jump to reach it. Spread over all that
+time, the speed change at its peak is under 10% on a typical shot at a 40 ms ping, about 15% at
+100 ms and about 25% at 200 ms. It never goes below 0.6x or above 1.8x, and the pace eases in and
+out. Only in the quickest exchanges at the net is there too little time, and then the shuttle can
+turn a frame or two from the racket. Their hit's spark and sound, and their points, come when the
+drawing gets there. Only the drawing runs on their clock; the flight itself is always where it
+really is, so your return is judged on that.
+
+The room's creator can switch prediction off on the Create Room screen. Each screen then draws
+exactly what has arrived.
 
 After pairing, the two browsers try to connect directly over WebRTC (`js/net.js`). The room
 server passes the connection setup between them, and public STUN servers (Google, Cloudflare)

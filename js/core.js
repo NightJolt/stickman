@@ -57,6 +57,7 @@ G.calcSpeed = (o) => { o.speed = Math.sqrt(o.dx * o.dx + o.dy * o.dy); };
 
 /* ---------- frame clock + update list ---------- */
 G.clock = 0;          // getTimer() equivalent, integer ms
+G.now = () => G.clock; // the game clock between frames too (main.js makes it run continuously)
 G.updates = [];
 G.addUpdate = (fn) => { G.updates.push(fn); };
 G.removeUpdate = (fn) => {

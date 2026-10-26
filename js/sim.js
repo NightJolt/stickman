@@ -22,6 +22,7 @@ class Shuttle {
     this.ox = 0;             // drawn this far from where it is (online: a correction easing out)
     this.oy = 0;
     this.hits = 0;           // racket contacts (the computer counts shots by it)
+    this.hidden = false;     // online: not drawn yet (their serve, before our drawing of them throws it)
   }
 
   // Racket contact: launch at `power` px/s in direction `dir` (deg, 0 = up)
@@ -33,8 +34,14 @@ class Shuttle {
     this.speed = power;
     this.dir = dir;
     this.rotation = dir;
-    m.fx.spark(this.x, this.y, dir, (power / 1350) * 0.4);
-    m.sfx('hit', power);
+    const x = this.x, y = this.y;
+    const show = () => {
+      m.fx.spark(x, y, dir, (power / 1350) * 0.4);
+      m.sfx('hit', power);
+    };
+    // online, the other player's hit sparks and sounds when our drawing of them gets to it
+    if (m.peer && m.peer.applying) m.peer.whenDrawn(show);
+    else show();
     G.applyDir(this);
     this.landX = Shuttle.predictLanding(this.x, this.y, this.dx, this.dy);
     if (m.peer) m.peer.hit(this, power, dir, kind);
@@ -979,7 +986,7 @@ class FX {
   trail(shuttle) {
     const t = { pts: [], rate: 0, attached: shuttle, alive: true, heat: 0, fire: [], lastX: null, lastY: null };
     t._emit = (dt) => {
-      const s = t.attached;
+      const s = t.attached && !t.attached.hidden ? t.attached : null;
       if (s) t.pts.push({ x: s.x + s.ox + G.LAYER_DX, y: s.y + s.oy, a: Math.min(1, t.rate), r: s.rotation, h: t.heat });
       for (const p of t.pts) p.a -= 0.06;
       while (t.pts.length && t.pts[0].a <= 0) t.pts.shift();

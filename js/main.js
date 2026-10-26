@@ -75,6 +75,9 @@
   // display refresh rate. After a long stall the timeline is re-anchored instead of catching up.
   let origin = performance.now();
   let frameNo = 0;
+  // G.clock is the last stepped frame's time; this is the same clock read right now, between
+  // frames (Online 1v1 times its messages with it)
+  G.now = () => performance.now() - origin;
   let fpsT = origin, fpsN = 0;
   function loop(now) {
     requestAnimationFrame(loop); // first, so one bad frame can't stop the game

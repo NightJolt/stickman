@@ -31,7 +31,14 @@ const NET = (() => {
   let leaveFn = null;
   let paired = false;
   let pingTimer = null;
-  let rtt = null;
+  let rtt = null;          // ms there and back (median of the recent pings)
+  // Clock sync, NTP-style: each ping carries our game clock (G.now) out and their clock back, so
+  // every exchange gives a round trip and an offset between the two clocks. The offset comes from
+  // the quickest recent exchanges, the ones least bent by queueing on the way.
+  const PING_EVERY = 250;
+  let samples = [];        // recent { r: round trip, o: their clock minus ours }
+  let offset = 0;
+  let synced = false;
   let pc = null;           // RTCPeerConnection
   let chans = {};          // its open data channels: { fast, sure }
   let pendingIce = [];     // candidates that arrived before the offer/answer
@@ -68,14 +75,14 @@ const NET = (() => {
   function receive(data) {
     let msg;
     try { msg = JSON.parse(data); } catch (err) { return; }
-    if (msg.t === 'ping') return send({ t: 'pong', ts: msg.ts });
-    if (msg.t === 'pong') { rtt = performance.now() - msg.ts; return; }
+    if (msg.t === 'ping') return send({ t: 'pong', a: msg.a, b: G.now() });
+    if (msg.t === 'pong') return heard(msg);
     if (msg.t === 'rtc') return signal(msg);
     if (msg.t === 'hello') { theirVersion = String(msg.v); return; }
     if (msg.t === 'paired') {
       viaServer({ t: 'hello', v: VERSION_ID }); // so a game that's out of date can be spotted
       paired = true;
-      pingTimer = setInterval(() => send({ t: 'ping', ts: performance.now() }), 1000);
+      pingTimer = setInterval(() => send({ t: 'ping', a: G.now() }), PING_EVERY);
       goDirect(msg.role);
     }
     if (msg.t === 'left') {
@@ -85,6 +92,27 @@ const NET = (() => {
       return;
     }
     if (listener) listener(msg);
+  }
+
+  function heard(msg) {
+    const c = G.now(), r = c - msg.a;
+    if (!(r >= 0 && r < 5000)) return;
+    const s = { r, o: msg.b - (msg.a + c) / 2 };
+    // Two quick exchanges in a row that agree with each other but not with the offset: a clock
+    // jumped (a stalled screen re-anchors its frame clock), so the older samples are stale.
+    const last = samples[samples.length - 1];
+    if (synced && last && r < rtt + 30 && last.r < rtt + 30 && Math.abs(s.o - last.o) < 15 &&
+        Math.abs(s.o - offset) > 40 && Math.abs(last.o - offset) > 40) samples = [last];
+    samples.push(s);
+    if (samples.length > 12) samples.shift();
+    const rs = samples.map((x) => x.r).sort((x, y) => x - y);
+    rtt = rs[rs.length >> 1];
+    // the offset from the quickest few; jump to it at first, or when a clock has jumped (a stall)
+    const quick = samples.slice().sort((x, y) => x.r - y.r).slice(0, 3);
+    const best = quick.reduce((a, x) => a + x.o, 0) / quick.length;
+    if (!synced || Math.abs(best - offset) > 40) offset = best;
+    else offset += (best - offset) * 0.3;
+    synced = synced || samples.length >= 3; // (stays synced through a restart above)
   }
 
   /* ---------------------------------------------------------------- direct link (WebRTC) */
@@ -165,6 +193,9 @@ const NET = (() => {
     pingTimer = null;
     paired = false;
     rtt = null;
+    samples = [];
+    offset = 0;
+    synced = false;
     theirVersion = null;
     dropDirect();
     path = 'relay';
@@ -215,6 +246,9 @@ const NET = (() => {
     onLeave(fn) { leaveFn = fn; },
     get paired() { return paired; },
     get rtt() { return rtt; },
+    // their game clock minus ours (ms), once a few pings have been and gone
+    get offset() { return offset; },
+    get synced() { return synced; },
     get path() { return path; },
     get version() { return VERSION_ID; },
     get theirVersion() { return theirVersion; },

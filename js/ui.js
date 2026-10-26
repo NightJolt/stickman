@@ -698,7 +698,7 @@ const UI = (() => {
         }
         if (err) text(ctx, err, 320, 242, 14, '#ff7675', 'center', 'bold');
         else if (create && copied && time - copied < 1.5) text(ctx, 'Copied!', 320, 242, 14, '#7bed9f', 'center', 'bold');
-        if (create) text(ctx, predict ? 'Smooths over the delay: you see your opponent where they are now (P)' : 'You see exactly what has arrived, half a ping late (P)', 320, 296 - 6, 9, 'rgba(255,255,255,0.45)', 'center', 'normal');
+        if (create) text(ctx, predict ? 'Smooths over the delay: nothing jumps, and the shuttle meets every racket (P)' : 'You see exactly what has arrived, half a ping late (P)', 320, 296 - 6, 9, 'rgba(255,255,255,0.45)', 'center', 'normal');
         const hide = (b, h) => { b.hidden = h; };
         if (create) {
           hide(s.buttons[0], state !== 'waiting' && state !== 'error');

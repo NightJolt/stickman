@@ -1043,7 +1043,7 @@ const R = (() => {
     if (m.p2) player(ctx, m.p2);
     if (m.machine) flightPath(ctx, m);
     for (const t of m.fx.trails) trail(ctx, t);
-    if (m.shuttle) shuttle(ctx, m.shuttle);
+    if (m.shuttle && !m.shuttle.hidden) shuttle(ctx, m.shuttle);
     bubble(ctx, m);
     effects(ctx, m.fx, 'front');
     if (m.machine) {
