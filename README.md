@@ -20,6 +20,13 @@ difficulty, and the choice is remembered.
 Behind the title menu two computer players with random characters play silently for as long as
 the menu is up, with a new pair each time you return to it.
 
+The game fills the window. The 640×426 stage is scaled to fit, and the hall carries on to the
+edges, so gameplay sizes never change. A wide window shows more of the hall to either side,
+including benches past the court ends. A tall one shows the roof (trusses, lamps, a scoreboard,
+banners) and, below the court, the near stands. The game steps at 60 frames a second whatever the
+display. On a screen that refreshes at another rate, or not quite in step with 60, the players and
+the shuttle are drawn between frames so they still move evenly.
+
 ## Online 1v1
 
 Multiplayer → Online 1v1 → **Create Room** gives you a four-character code to send to your

@@ -718,6 +718,14 @@ class Match {
   }
 
   update(dt) {
+    // where the players and the shuttle stood when last drawn, so the screen can draw them
+    // between frames (render.js)
+    for (const o of [this.p1, this.p2, this.shuttle]) {
+      if (!o) continue;
+      o.drawnX = o.x + (o.ox || 0);
+      o.drawnY = o.y + (o.oy || 0);
+      o.drawnAt = G.frame;
+    }
     if (this.mode === 'peer') {
       this.local.update(dt); // the other player is drawn from their screen's messages
     } else {

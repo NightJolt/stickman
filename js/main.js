@@ -94,6 +94,7 @@
     }
     while (frameNo < target) {
       frameNo++;
+      G.frame = frameNo;
       const t = Math.floor((frameNo * 1000) / G.FPS);
       const prev = G.clock;
       G.clock = t;
@@ -101,6 +102,11 @@
       G.enterFrame(t);
       UI.tick((t - prev) / 1000);
     }
+    // How far the display is into the next frame: the players and the shuttle are drawn that far
+    // between their last two frames (render.js), so they move evenly at any refresh rate, or when
+    // the screen's beat sits right on a frame edge and would otherwise show some frames twice
+    // and skip others.
+    G.alpha = Math.max(0, Math.min(1, ((now - origin) * G.FPS) / 1000 - frameNo));
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);

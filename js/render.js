@@ -52,142 +52,621 @@ const R = (() => {
   }
 
   /* ------------------------------------------------------------ background */
-  // The hall, drawn across the whole visible area v (G.view): the court sits on the stage as
-  // always, and the walls, windows, lights, crowd, boards and floor carry on to the window's edges.
+  // The hall, in muted colours so the players and the shuttle stand out. It's drawn across the
+  // whole visible area v (G.view): the court sits on the stage as always, and the hall carries on
+  // to the window's edges. A wide window shows more of the hall to either side (benches beyond
+  // the court ends); a tall one shows the roof above (trusses, lamps, a scoreboard, banners) and
+  // the near side below (the rest of the court, a barrier, the front rows seen from behind).
+  const HALL = {
+    wall: [[-300, '#10141a'], [-20, '#1a2029'], [150, '#283140'], [400, '#37414f']], // [y, colour]
+    sky: ['#545b70', '#857a86', '#bfa38b'], // dusk: deep above, warm low behind the city
+    frame: '#141920',
+    city: 'rgba(34,32,46,0.6)',
+    steel: '#1c2129', steelHi: '#2c333e',
+    lamp: '#e8e2ce', glow: '255,236,204',
+    seats: ['#2b313b', '#262c35'],
+    boards: ['#40566c', '#86634f', '#4f6c5c', '#6d4a4d'],
+    boardText: 'rgba(236,231,221,0.78)',
+    floor: ['#6e5640', '#98795a', '#7f634a'],
+    plank: 'rgba(52,34,18,0.24)',
+    court: '#4b6556', line: '#e3ded2',
+    pad: ['#24344a', '#30455c'],
+  };
+  const COURT_NEAR = 446; // the court's near side line (below the stage on a 16:9 window)
+  const mod = (a, n) => ((a % n) + n) % n;
+  // something repeating every `step` from `start`: calls fn(x, i) for each across the visible width
+  function tile(v, start, step, fn) {
+    for (let i = Math.floor((v.x0 - start) / step) - 1; start + i * step < v.x1 + step; i++) fn(start + i * step, i);
+  }
+
   function buildBackground(scale, v) {
     const c = document.createElement('canvas');
-    const vw = v.x1 - v.x0, vh = v.y1 - v.y0;
-    c.width = Math.round(vw * scale);
-    c.height = Math.round(vh * scale);
+    c.width = Math.round((v.x1 - v.x0) * scale);
+    c.height = Math.round((v.y1 - v.y0) * scale);
     const ctx = c.getContext('2d');
     ctx.scale(scale, scale);
     ctx.translate(-v.x0, -v.y0);
-    const mod = (a, n) => ((a % n) + n) % n;
-    const from = (start, step) => start + step * Math.floor((v.x0 - start) / step) - step; // repeats reaching v.x0
-    // hall wall
-    let g = ctx.createLinearGradient(0, 0, 0, 400);
-    g.addColorStop(0, '#1f2a44');
-    g.addColorStop(0.55, '#33476b');
-    g.addColorStop(1, '#4b6288');
+    hallWall(ctx, v);
+    if (v.y0 < 0) roof(ctx, v);
+    windows(ctx, v);
+    ceiling(ctx, v);
+    stands(ctx, v);
+    adBoards(ctx, v);
+    floor(ctx, v);
+    court(ctx);
+    if (v.x0 < 0 || v.x1 > G.W) courtside(ctx, v);
+    if (v.y1 > COURT_NEAR + 24) nearSide(ctx, v);
+    endWalls(ctx);
+    vignette(ctx, v);
+    return c;
+  }
+
+  function hallWall(ctx, v) {
+    const g = ctx.createLinearGradient(0, -300, 0, 400);
+    for (const [y, col] of HALL.wall) g.addColorStop((y + 300) / 700, col);
     ctx.fillStyle = g;
-    ctx.fillRect(v.x0, v.y0, vw, 400 - v.y0);
-    // tall windows with evening sky
-    for (let i = Math.floor((v.x0 - 62) / 112) - 1; 62 + i * 112 < v.x1; i++) {
-      const x = 62 + i * 112, y = 54, w = 76, h = 150;
+    ctx.fillRect(v.x0, v.y0, v.x1 - v.x0, 400 - v.y0);
+  }
+
+  // tall windows along the back wall, a dusky sky and the city beyond
+  function windows(ctx, v) {
+    tile(v, 62, 112, (x, i) => {
+      const y = 54, w = 76, h = 150;
       const sky = ctx.createLinearGradient(0, y, 0, y + h);
-      sky.addColorStop(0, '#f6a76b');
-      sky.addColorStop(0.5, '#e7766a');
-      sky.addColorStop(1, '#7b5a9a');
+      sky.addColorStop(0, HALL.sky[0]);
+      sky.addColorStop(0.5, HALL.sky[1]);
+      sky.addColorStop(0.92, HALL.sky[2]);
       ctx.fillStyle = sky;
       rr(ctx, x, y, w, h, 6);
       ctx.fill();
-      ctx.strokeStyle = '#18213a';
+      for (let b = 0; b < 6; b++) {
+        const bh = 14 + mod(i * 7 + b * 13, 30), bx = x + b * 13;
+        ctx.fillStyle = HALL.city;
+        ctx.fillRect(bx, y + h - bh, 11, bh);
+        ctx.fillStyle = 'rgba(236,196,140,0.32)'; // a lit window or two
+        if (mod(i * 5 + b * 3, 4) === 0) ctx.fillRect(bx + 3, y + h - bh + 5, 2, 2);
+        if (mod(i * 3 + b * 7, 5) === 0) ctx.fillRect(bx + 6, y + h - bh + 11, 2, 2);
+      }
+      // a faint sheen across the glass
+      ctx.save();
+      rr(ctx, x, y, w, h, 6);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.045)';
+      ctx.beginPath();
+      ctx.moveTo(x + 10, y + h);
+      ctx.lineTo(x + 34, y + h);
+      ctx.lineTo(x + w + 10, y + 20);
+      ctx.lineTo(x + w - 14, y + 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = HALL.frame;
       ctx.lineWidth = 4;
+      rr(ctx, x, y, w, h, 6);
       ctx.stroke();
       ctx.lineWidth = 2;
       line(ctx, x + w / 2, y, x + w / 2, y + h);
       line(ctx, x, y + h / 3, x + w, y + h / 3);
       line(ctx, x, y + (2 * h) / 3, x + w, y + (2 * h) / 3);
-      // distant city silhouette
-      ctx.fillStyle = 'rgba(40,30,70,0.55)';
-      for (let b = 0; b < 6; b++) {
-        const bh = 14 + mod(i * 7 + b * 13, 30);
-        ctx.fillRect(x + b * 13, y + h - bh, 11, bh);
-      }
-    }
-    // ceiling lights
-    for (let i = Math.floor((v.x0 - 110) / 140) - 1; 110 + (i - 1) * 140 < v.x1; i++) {
-      const x = 110 + i * 140;
-      const lg = ctx.createRadialGradient(x, 18, 2, x, 18, 120);
-      lg.addColorStop(0, 'rgba(255,240,200,0.35)');
-      lg.addColorStop(1, 'rgba(255,240,200,0)');
+      // sill
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(x - 4, y + h + 3, w + 8, 2);
+    });
+  }
+
+  // the beam along the top of the wall (the bottom chord of the roof truss) and the lamps under it
+  function ceiling(ctx, v) {
+    tile(v, 110, 140, (x) => {
+      const lg = ctx.createRadialGradient(x, 16, 2, x, 16, 135);
+      lg.addColorStop(0, `rgba(${HALL.glow},0.24)`);
+      lg.addColorStop(1, `rgba(${HALL.glow},0)`);
       ctx.fillStyle = lg;
-      ctx.fillRect(x - 120, 0, 240, 200);
-      ctx.fillStyle = '#e9e4d0';
-      rr(ctx, x - 22, 10, 44, 7, 3);
+      ctx.fillRect(x - 135, -119, 270, 270);
+    });
+    ctx.fillStyle = HALL.steel;
+    ctx.fillRect(v.x0, -3, v.x1 - v.x0, 8);
+    ctx.fillStyle = HALL.steelHi;
+    ctx.fillRect(v.x0, -3, v.x1 - v.x0, 1.5);
+    tile(v, 110, 140, (x) => {
+      ctx.strokeStyle = HALL.steel;
+      ctx.lineWidth = 1.5;
+      line(ctx, x - 15, 5, x - 15, 10);
+      line(ctx, x + 15, 5, x + 15, 10);
+      ctx.fillStyle = '#2a3039';
+      rr(ctx, x - 24, 9, 48, 5, 2);
       ctx.fill();
+      ctx.fillStyle = HALL.lamp;
+      rr(ctx, x - 22, 12, 44, 4, 2);
+      ctx.fill();
+    });
+  }
+
+  // a lattice girder across the hall: chords at y top and bottom, diagonals every `panel` px
+  function truss(ctx, v, top, bottom, panel, k) {
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = HALL.steel;
+    ctx.lineWidth = 1.6 * k;
+    ctx.beginPath();
+    for (let x = panel * Math.floor(v.x0 / panel / 2) * 2 - 2 * panel; x < v.x1 + 2 * panel; x += 2 * panel) {
+      ctx.moveTo(x, bottom);
+      ctx.lineTo(x + panel, top);
+      ctx.lineTo(x + 2 * panel, bottom);
+      ctx.moveTo(x + panel, top);
+      ctx.lineTo(x + panel, bottom);
     }
-    // bleachers band
-    g = ctx.createLinearGradient(0, 238, 0, 330);
-    g.addColorStop(0, '#2a3657');
-    g.addColorStop(1, '#222c47');
+    ctx.stroke();
+    ctx.fillStyle = HALL.steel;
+    ctx.fillRect(v.x0, top - 2.5 * k, v.x1 - v.x0, 5 * k);
+    ctx.fillRect(v.x0, bottom - 2.5 * k, v.x1 - v.x0, 5 * k);
+    ctx.fillStyle = HALL.steelHi;
+    ctx.fillRect(v.x0, top - 2.5 * k, v.x1 - v.x0, 1.2 * k);
+  }
+
+  // above the stage on a tall window: the roof, from the main truss over the court up to the deck
+  function roof(ctx, v) {
+    const vw = v.x1 - v.x0;
+    // the roof deck: ribs spreading out as they come over us
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let y = -252, s = 9; y > v.y0 - 2; s *= 1.09, y -= s) ctx.fillRect(v.x0, y, vw, 1.2);
+    // skylights in the deck
+    if (v.y0 < -320) {
+      tile(v, 40, 160, (x) => {
+        const g = ctx.createLinearGradient(0, -392, 0, -334);
+        g.addColorStop(0, '#2a3446');
+        g.addColorStop(1, '#3b4458');
+        ctx.fillStyle = g;
+        ctx.fillRect(x, -392, 80, 58);
+        ctx.strokeStyle = HALL.frame;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, -392, 80, 58);
+        ctx.lineWidth = 1.5;
+        line(ctx, x + 40, -392, x + 40, -334);
+        ctx.fillStyle = 'rgba(230,225,210,0.5)'; // a star or two
+        ctx.fillRect(x + 14 + mod(x, 23), -380 + mod(x, 17), 1.4, 1.4);
+        ctx.fillRect(x + 52 + mod(x, 11), -360 + mod(x, 13), 1.2, 1.2);
+      });
+    }
+    // the upper truss, further back: thinner
+    truss(ctx, v, -236, -202, 24, 0.75);
+    // the roof's shadow deepening upward
+    const dark = ctx.createLinearGradient(0, -60, 0, -480);
+    dark.addColorStop(0, 'rgba(8,10,14,0)');
+    dark.addColorStop(1, 'rgba(8,10,14,0.55)');
+    ctx.fillStyle = dark;
+    ctx.fillRect(v.x0, v.y0, vw, -60 - v.y0);
+    // lamps hanging from it, each lighting the air below
+    for (const x of [72, 168, 472, 568]) {
+      const halo = ctx.createRadialGradient(x, -112, 2, x, -112, 96);
+      halo.addColorStop(0, `rgba(${HALL.glow},0.13)`);
+      halo.addColorStop(0.35, `rgba(${HALL.glow},0.05)`);
+      halo.addColorStop(1, `rgba(${HALL.glow},0)`);
+      ctx.fillStyle = halo;
+      ctx.fillRect(x - 96, -208, 192, 192);
+      ctx.strokeStyle = 'rgba(120,128,140,0.5)';
+      ctx.lineWidth = 1;
+      line(ctx, x, -202, x, -128);
+      ctx.fillStyle = '#2a3039';
+      ctx.beginPath();
+      ctx.moveTo(x - 4, -130);
+      ctx.lineTo(x + 4, -130);
+      ctx.lineTo(x + 11, -119);
+      ctx.lineTo(x - 11, -119);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = HALL.lamp;
+      ctx.fillRect(x - 9, -120, 18, 2.5);
+    }
+    // championship banners
+    const flags = [['#5d3a3e', '1998'], ['#33435a', '2004'], ['#4d5a3d', '2011'], ['#55405a', '2019']];
+    [24, 120, 520, 616].forEach((x, i) => {
+      const [col, year] = flags[i];
+      ctx.fillStyle = 'rgba(120,128,140,0.5)';
+      ctx.fillRect(x - 15, -202, 30, 2);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(x - 15, -200);
+      ctx.lineTo(x + 15, -200);
+      ctx.lineTo(x + 15, -142);
+      ctx.lineTo(x, -132);
+      ctx.lineTo(x - 15, -142);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(214,190,140,0.45)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(x, -180);
+      ctx.rotate(Math.PI);
+      drawShuttleShape(ctx);
+      ctx.restore();
+      text(ctx, year, x, -156, 7, 'rgba(226,212,182,0.8)', 'center', 'bold');
+    });
+    scoreboard(ctx);
+    // the main truss over the court; its bottom chord is the beam along the top of the wall
+    truss(ctx, v, -42, 1, 30, 1);
+  }
+
+  // the scoreboard hanging over the net
+  function scoreboard(ctx) {
+    const x = G.NET_X, top = -178, w = 172, h = 80;
+    ctx.strokeStyle = 'rgba(120,128,140,0.5)';
+    ctx.lineWidth = 1;
+    for (const dx of [-74, -34, 34, 74]) line(ctx, x + dx, -202, x + dx * 0.92, top);
+    ctx.fillStyle = '#161a20';
+    rr(ctx, x - w / 2, top, w, h, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#2b323d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#0c0f14';
+    rr(ctx, x - w / 2 + 8, top + 8, w - 16, h - 28, 3);
+    ctx.fill();
+    text(ctx, 'SHUTTLE STICKS', x, top + 25, 14, '#c6a66c', 'center', '900');
+    text(ctx, 'HOME  ·  AWAY', x, top + 43, 7, 'rgba(198,190,170,0.55)', 'center', 'bold');
+    ctx.fillStyle = '#1d3438';
+    ctx.fillRect(x - w / 2 + 8, top + h - 15, w - 16, 8);
+    text(ctx, 'FEATHER CUP  ·  SMASH OPEN  ·  STICK LEAGUE', x, top + h - 11, 5, 'rgba(176,206,200,0.7)', 'center', 'bold');
+  }
+
+  // the bleachers behind the court, and the crowd in them
+  function stands(ctx, v) {
+    const vw = v.x1 - v.x0;
+    const g = ctx.createLinearGradient(0, 238, 0, 330);
+    g.addColorStop(0, '#262c35');
+    g.addColorStop(1, '#20252d');
     ctx.fillStyle = g;
     ctx.fillRect(v.x0, 238, vw, 92);
     for (let r = 0; r < 4; r++) {
-      ctx.fillStyle = r % 2 ? '#26314f' : '#2e3b5e';
+      ctx.fillStyle = HALL.seats[r % 2];
       ctx.fillRect(v.x0, 244 + r * 22, vw, 18);
     }
-    // crowd heads
     const hues = [12, 40, 200, 160, 280, 330, 90];
     for (let r = 0; r < 4; r++) {
-      for (let x = from(8 + (r % 2) * 9, 18); x < v.x1 + 18; x += 18) {
+      tile(v, 8 + (r % 2) * 9, 18, (x) => {
         const k = mod(x * 7 + r * 31, 97);
-        if (k < 30) continue;
-        ctx.fillStyle = `hsl(${hues[k % hues.length]},35%,${38 + (k % 15)}%)`;
+        if (k < 30) return;
+        ctx.fillStyle = `hsl(${hues[k % hues.length]},16%,${34 + (k % 15)}%)`;
         ctx.beginPath();
         ctx.arc(x, 252 + r * 22, 6, Math.PI, 0);
         ctx.fill();
-        ctx.fillStyle = 'rgba(240,215,190,0.55)';
+        ctx.fillStyle = 'rgba(214,194,174,0.5)';
         ctx.beginPath();
         ctx.arc(x, 241 + r * 22, 4, 0, Math.PI * 2);
         ctx.fill();
-      }
+      });
     }
-    // advertising boards
-    g = ctx.createLinearGradient(0, 332, 0, 372);
-    g.addColorStop(0, '#16213a');
-    g.addColorStop(1, '#0f172b');
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'; // the rail along the front
+    ctx.fillRect(v.x0, 328, vw, 1.5);
+  }
+
+  function adBoards(ctx, v) {
+    const g = ctx.createLinearGradient(0, 332, 0, 372);
+    g.addColorStop(0, '#191e26');
+    g.addColorStop(1, '#13171e');
     ctx.fillStyle = g;
-    ctx.fillRect(v.x0, 332, vw, 40);
+    ctx.fillRect(v.x0, 332, v.x1 - v.x0, 40);
     const boards = ['SHUTTLE STICKS', 'FEATHER CUP', 'SMASH OPEN', 'STICK LEAGUE'];
-    for (let i = Math.floor((v.x0 - 12) / 158) - 1; 12 + i * 158 < v.x1; i++) {
-      const x = 12 + i * 158;
-      ctx.fillStyle = ['#2b6cb0', '#c05621', '#2f855a', '#9b2c2c'][mod(i, 4)];
+    tile(v, 12, 158, (x, i) => {
+      ctx.fillStyle = HALL.boards[mod(i, 4)];
       rr(ctx, x, 337, 146, 30, 4);
       ctx.fill();
-      text(ctx, boards[mod(i, 4)], x + 73, 352, 13, 'rgba(255,255,255,0.85)', 'center', 'bold');
-    }
-    // floor
-    g = ctx.createLinearGradient(0, 372, 0, G.H);
-    g.addColorStop(0, '#9c6a3e');
-    g.addColorStop(0.3, '#c98d55');
-    g.addColorStop(1, '#a8703f');
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(x + 3, 338, 140, 9);
+      text(ctx, boards[mod(i, 4)], x + 73, 352, 13, HALL.boardText, 'center', 'bold');
+    });
+  }
+
+  // the wooden floor; the planks get wider toward us
+  function floor(ctx, v) {
+    const vw = v.x1 - v.x0;
+    const g = ctx.createLinearGradient(0, 372, 0, 480);
+    g.addColorStop(0, HALL.floor[0]);
+    g.addColorStop(0.25, HALL.floor[1]);
+    g.addColorStop(1, HALL.floor[2]);
     ctx.fillStyle = g;
     ctx.fillRect(v.x0, 372, vw, v.y1 - 372);
-    ctx.strokeStyle = 'rgba(80,45,20,0.25)';
-    ctx.lineWidth = 1;
-    for (let y = 380; y < v.y1; y += 9) line(ctx, v.x0, y, v.x1, y);
-    for (let tile = Math.floor(v.x0 / G.W); tile * G.W < v.x1; tile++) { // plank joints, one stage-width at a time
-      for (let i = 0; i < 40; i++) {
-        const y = 376 + (i % 6) * 9, x = tile * G.W + ((i * 97) % G.W);
-        line(ctx, x, y, x, y + 9);
-      }
+    ctx.fillStyle = HALL.plank;
+    let r = 0;
+    for (let y = 379, s = 8.5; y < v.y1; y += s, s *= 1.05, r++) {
+      ctx.fillRect(v.x0, y, vw, 1);
+      const step = 90 * (s / 8.5), off = mod(r * 37, 90) * (s / 8.5);
+      for (let x = off + step * Math.floor((v.x0 - off) / step) - step; x < v.x1; x += step) ctx.fillRect(x, y, 1, s);
     }
-    // court surface strip + lines
-    ctx.fillStyle = 'rgba(46,125,90,0.55)';
-    ctx.fillRect(G.WALL, 396, G.W - 2 * G.WALL, 30);
-    ctx.fillStyle = '#f4f1e8';
-    ctx.fillRect(G.WALL, 399, G.W - 2 * G.WALL, 2.5);
-    ctx.fillRect(G.WALL, 396, 2.5, 30);
-    ctx.fillRect(G.W - G.WALL - 2.5, 396, 2.5, 30);
-    const sl = G.NET_X - G.SERVE_GAP, sr = G.NET_X + G.SERVE_GAP;
-    ctx.fillRect(sl - 1.25, 396, 2.5, 30);
-    ctx.fillRect(sr - 1.25, 396, 2.5, 30);
-    // side wall pads (the shuttle bounces off these)
-    for (const x of [0, G.W - G.WALL]) {
-      g = ctx.createLinearGradient(x, 0, x + G.WALL, 0);
-      g.addColorStop(0, '#173a6b');
-      g.addColorStop(0.5, '#1f4f8f');
-      g.addColorStop(1, '#173a6b');
-      ctx.fillStyle = g;
-      ctx.fillRect(x, 120, G.WALL, 280);
-      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  }
+
+  // the court, from its far side line at the players' feet to its near one below the stage
+  function court(ctx) {
+    const L = G.WALL, R_ = G.W - G.WALL, top = 396, near = COURT_NEAR, lw = 2.5;
+    ctx.fillStyle = HALL.court;
+    ctx.fillRect(L, top, R_ - L, near - top + 3);
+    const sheen = ctx.createLinearGradient(0, top, 0, near);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.05)');
+    sheen.addColorStop(1, 'rgba(0,0,0,0.08)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(L, top, R_ - L, near - top + 3);
+    ctx.fillStyle = HALL.line;
+    ctx.fillRect(L, 399, R_ - L, lw);                // side lines, far and near
+    ctx.fillRect(L, near - lw, R_ - L, lw);
+    ctx.fillRect(L, top, lw, near - top);            // back boundary lines, at the walls
+    ctx.fillRect(R_ - lw, top, lw, near - top);
+    const ls = (0.76 / 13.4) * (R_ - L);             // long service lines for doubles
+    ctx.fillRect(L + ls - lw / 2, top, lw, near - top);
+    ctx.fillRect(R_ - ls - lw / 2, top, lw, near - top);
+    const sl = G.NET_X - G.SERVE_GAP, sr = G.NET_X + G.SERVE_GAP; // short service lines
+    ctx.fillRect(sl - lw / 2, top, lw, near - top);
+    ctx.fillRect(sr - lw / 2, top, lw, near - top);
+    const mid = (399 + near) / 2;                    // centre lines, back to the short service line
+    ctx.fillRect(L, mid - lw / 2, sl - L, lw);
+    ctx.fillRect(sr, mid - lw / 2, R_ - sr, lw);
+  }
+
+  // beyond the court ends on a wide window: a bench at each end, kit, a cooler
+  function courtside(ctx, v) {
+    const bench = (x) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(x + 22, 400, 26, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#272c34';
+      ctx.fillRect(x + 4, 385, 3, 15);
+      ctx.fillRect(x + 37, 385, 3, 15);
+      ctx.fillStyle = '#6a5641';
+      rr(ctx, x, 381, 44, 5, 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(x + 1, 381, 42, 1.2);
+      ctx.fillStyle = '#5b7472'; // a folded towel
+      rr(ctx, x + 6, 377, 15, 4.5, 1.5);
+      ctx.fill();
+    };
+    const bottle = (x, col) => {
+      ctx.fillStyle = col;
+      rr(ctx, x - 2.5, 389, 5, 11, 1.5);
+      ctx.fill();
+      ctx.fillStyle = '#d9dbd6';
+      ctx.fillRect(x - 1.5, 387, 3, 2);
+    };
+    const bag = (x) => {
+      ctx.fillStyle = '#2e333c';
+      rr(ctx, x, 386, 30, 14, 5);
+      ctx.fill();
+      ctx.strokeStyle = '#4a5260';
+      ctx.lineWidth = 1;
+      line(ctx, x + 4, 391, x + 26, 391);
+      ctx.strokeStyle = '#3b414b';
       ctx.lineWidth = 1.5;
-      for (let y = 160; y < 400; y += 40) line(ctx, x + 3, y, x + G.WALL - 3, y);
-      ctx.fillStyle = '#0f2747';
-      ctx.fillRect(x, 116, G.WALL, 6);
+      ctx.beginPath();
+      ctx.arc(x + 15, 386, 7, Math.PI, 0);
+      ctx.stroke();
+    };
+    const cooler = (x) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(x, 400, 13, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#7c4f47';
+      rr(ctx, x - 10, 376, 20, 24, 3);
+      ctx.fill();
+      ctx.fillStyle = '#d6d2c8';
+      ctx.fillRect(x - 10, 380, 20, 3);
+      ctx.fillStyle = '#9aa1ab';
+      ctx.fillRect(x - 2, 386, 4, 3);
+    };
+    // the left end (mirrored on the right)
+    for (const side of [-1, 1]) {
+      const at = (d) => (side < 0 ? -d : G.W + d); // d px out from the stage edge
+      if (side < 0 ? v.x0 < 0 : v.x1 > G.W) {
+        bench(side < 0 ? at(54) : at(10));
+        bottle(at(4), '#5f7891');
+        bottle(at(9), '#c9cbc6');
+      }
+      if (side < 0 ? v.x0 < -70 : v.x1 > G.W + 70) bag(side < 0 ? at(104) : at(74));
+      if (side < 0 ? v.x0 < -120 : v.x1 > G.W + 120) cooler(at(134));
     }
-    return c;
+  }
+
+  // below the court on a tall window: a low barrier, then the front rows of the near stand,
+  // seen from behind, bigger and darker the nearer they are
+  function nearSide(ctx, v) {
+    const vw = v.x1 - v.x0, by = COURT_NEAR + 26;
+    ctx.fillStyle = '#1b2028';
+    ctx.fillRect(v.x0, by, vw, v.y1 - by);
+    ctx.fillStyle = '#2c333e';
+    ctx.fillRect(v.x0, by, vw, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    tile(v, 6, 106, (x) => ctx.fillRect(x, by + 7, 94, 12));
+    const hair = ['#2a221c', '#3b2f26', '#1d1b1a', '#4a3d33', '#585550', '#33281f'];
+    const shirt = ['#2f3a45', '#41383b', '#38423a', '#3d3a46', '#463d33', '#2e3238'];
+    let y = by + 50, k = 1, row = 0;
+    while (y - 30 * k < v.y1) {
+      // the riser and the seat backs of this row
+      ctx.fillStyle = row % 2 ? '#191d24' : '#1d222a';
+      ctx.fillRect(v.x0, y + 14 * k, vw, v.y1 - y);
+      const step = 34 * k;
+      tile(v, mod(row * 13, 34) * k, step, (x, i) => {
+        const n = mod(i * 7 + row * 5, 11);
+        if (n < 3) {
+          ctx.fillStyle = '#262c35'; // an empty seat
+          rr(ctx, x - 12 * k, y + 2 * k, 24 * k, 16 * k, 4 * k);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.05)';
+          ctx.fillRect(x - 11 * k, y + 2.5 * k, 22 * k, 1.5 * k);
+          return;
+        }
+        ctx.fillStyle = shirt[n % shirt.length];
+        ctx.beginPath();
+        ctx.ellipse(x, y + 18 * k, 15 * k, 11 * k, 0, Math.PI, 0);
+        ctx.lineTo(x + 15 * k, y + 32 * k);
+        ctx.lineTo(x - 15 * k, y + 32 * k);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = hair[(n * 5 + row) % hair.length];
+        ctx.beginPath();
+        ctx.ellipse(x, y + 2 * k, 7.5 * k, 8.5 * k, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // the court's light catching the top of the head and the shoulders
+        ctx.strokeStyle = 'rgba(214,220,226,0.1)';
+        ctx.lineWidth = 1.2 * k;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 2 * k, 6.8 * k, 7.8 * k, 0, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(x, y + 18 * k, 14 * k, 10 * k, 0, Math.PI * 1.1, Math.PI * 1.35);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(x, y + 18 * k, 14 * k, 10 * k, 0, Math.PI * 1.65, Math.PI * 1.9);
+        ctx.stroke();
+      });
+      row++;
+      k *= 1.22;
+      y += 46 * k;
+    }
+    const dark = ctx.createLinearGradient(0, by, 0, Math.max(by + 1, v.y1));
+    dark.addColorStop(0, 'rgba(8,10,14,0.1)');
+    dark.addColorStop(1, 'rgba(8,10,14,0.5)');
+    ctx.fillStyle = dark;
+    ctx.fillRect(v.x0, by, vw, v.y1 - by);
+  }
+
+  // The walls at the court ends. The shuttle bounces off their inner faces (x = WALL and
+  // W - WALL): rink-style barriers, a padded board below and glass above in a steel frame, so the
+  // hall shows through instead of being walled off. The right one is the left one mirrored.
+  function endWalls(ctx) {
+    endWall(ctx);
+    ctx.save();
+    ctx.translate(G.W, 0);
+    ctx.scale(-1, 1);
+    endWall(ctx);
+    ctx.restore();
+  }
+  function endWall(ctx) {
+    const W = G.WALL, top = 116, rail = 326, base = 397;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(W / 2 + 2, 401, W / 2 + 10, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // the glass: tinted, a little hazier low down, with the lights' reflections across it
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(3, top + 6, W - 3, rail - top - 6);
+    ctx.clip();
+    const tint = ctx.createLinearGradient(0, top, 0, rail);
+    tint.addColorStop(0, 'rgba(150,182,205,0.06)');
+    tint.addColorStop(1, 'rgba(150,182,205,0.15)');
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, top, W, rail - top);
+    const led = ctx.createLinearGradient(0, top + 6, 0, top + 22);
+    led.addColorStop(0, 'rgba(236,216,176,0.2)');
+    led.addColorStop(1, 'rgba(236,216,176,0)');
+    ctx.fillStyle = led;
+    ctx.fillRect(0, top + 6, W, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.beginPath();
+    ctx.moveTo(3, 236);
+    ctx.lineTo(W, 172);
+    ctx.lineTo(W, 196);
+    ctx.lineTo(3, 260);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.11)';
+    ctx.beginPath();
+    ctx.moveTo(3, 290);
+    ctx.lineTo(W, 240);
+    ctx.lineTo(W, 245);
+    ctx.lineTo(3, 295);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    // its edge, the face the shuttle meets
+    ctx.fillStyle = 'rgba(10,14,20,0.3)';
+    ctx.fillRect(W - 3, top + 6, 1, rail - top - 6);
+    ctx.fillStyle = 'rgba(218,234,244,0.55)';
+    ctx.fillRect(W - 2, top + 6, 2, rail - top - 6);
+    // the post at the back of the frame, with the clips holding the glass
+    ctx.fillStyle = '#20252d';
+    ctx.fillRect(-3, top, 7, base - top);
+    ctx.fillStyle = '#39414e';
+    ctx.fillRect(-1.6, top, 1.2, base - top);
+    ctx.fillStyle = '#15191f';
+    ctx.fillRect(2.8, top, 1.2, base - top);
+    for (const y of [top + 34, 222, rail - 28]) {
+      ctx.fillStyle = '#7b8490';
+      rr(ctx, 1, y, 7, 6, 1.5);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(1.5, y + 0.5, 6, 1);
+    }
+    // the rail along the top, a light strip under it, and a broadcast camera watching the court
+    ctx.fillStyle = '#2a3039';
+    rr(ctx, -4, top, W + 5, 6, 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(-3, top, W + 3, 1.2);
+    ctx.fillStyle = 'rgba(236,216,176,0.75)';
+    ctx.fillRect(4, top + 6, W - 6, 1.3);
+    ctx.fillStyle = '#1c2026';
+    ctx.fillRect(9, top - 4, 3, 4);
+    rr(ctx, 3, top - 13, 16, 9, 2);
+    ctx.fill();
+    ctx.fillStyle = '#2c333d';
+    rr(ctx, 19, top - 12, 6, 7, 1.5);
+    ctx.fill();
+    ctx.fillStyle = '#5e7e96';
+    ctx.beginPath();
+    ctx.arc(25, top - 8.5, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#b8574f';
+    ctx.fillRect(5, top - 11, 2, 2);
+    // the padded board: a cushion, stitched across, with the hall's badge
+    const pad = ctx.createLinearGradient(0, 0, W, 0);
+    pad.addColorStop(0, HALL.pad[0]);
+    pad.addColorStop(0.55, HALL.pad[1]);
+    pad.addColorStop(1, HALL.pad[0]);
+    ctx.fillStyle = pad;
+    rr(ctx, -1, rail, W + 1, base - rail, 3);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(0, rail + 3, W - 1, 3);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([2.5, 2]);
+    line(ctx, 2, 366, W - 2, 366);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(198,166,108,0.85)';
+    ctx.beginPath();
+    ctx.arc(W / 2, 345, 8.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = HALL.pad[0];
+    ctx.beginPath();
+    ctx.arc(W / 2, 345, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(W / 2, 346);
+    ctx.scale(0.62, 0.62);
+    drawShuttleShape(ctx);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(12,16,22,0.35)'; // scuffed kick plate
+    ctx.fillRect(-1, base - 9, W + 1, 9);
+    // the cap along the top of the board, and the foot
+    ctx.fillStyle = '#b4b9c1';
+    rr(ctx, -3, rail - 3, W + 4, 5, 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(-1, rail + 2, W + 1, 1.5);
+    ctx.fillStyle = '#1c2027';
+    rr(ctx, -4, base, W + 6, 4, 1.5);
+    ctx.fill();
+  }
+
+  // the edges of a big window fall gently into shadow, keeping the eye on the court
+  function vignette(ctx, v) {
+    const cx = G.W / 2, cy = 250;
+    const far = Math.max(...[[v.x0, v.y0], [v.x1, v.y0], [v.x0, v.y1], [v.x1, v.y1]].map(([x, y]) => Math.hypot(x - cx, y - cy)));
+    const g = ctx.createRadialGradient(cx, cy, 360, cx, cy, Math.max(far, 460));
+    g.addColorStop(0, 'rgba(6,8,12,0)');
+    g.addColorStop(1, 'rgba(6,8,12,0.38)');
+    ctx.fillStyle = g;
+    ctx.fillRect(v.x0, v.y0, v.x1 - v.x0, v.y1 - v.y0);
   }
   function background(ctx, scale) {
     const v = G.view, key = [scale, v.x0, v.y0, v.x1, v.y1].join();
@@ -304,7 +783,9 @@ const R = (() => {
   function trail(ctx, t) {
     const pts = t.pts;
     if (pts.length >= 2) {
-      ctx.lineCap = 'round';
+      // flat ends: each segment is its own stroke (its own fade), and round ends would overlap
+      // at every joint into a row of brighter dots along the line
+      ctx.lineCap = 'butt';
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i];
         const al = Math.max(0, Math.min(a.a, b.a)) * 0.55;
@@ -1031,7 +1512,46 @@ const R = (() => {
     ctx.restore();
   }
 
+  // Puts the players and the shuttle where they were between their last two frames, as far on as
+  // the screen is into the next one (G.alpha), with the shuttle's trail ending on it. Returns what
+  // to put back once they're drawn. Something that jumped (a new rally) isn't slid across.
+  function between(m) {
+    const a = G.alpha, undo = [];
+    if (!(a < 1)) return undo;
+    const s = m.shuttle;
+    const head = s && !s.hidden ? s.x + (s.ox || 0) + G.LAYER_DX : null;
+    for (const o of [m.p1, m.p2, s]) {
+      if (!o || o.drawnAt !== G.frame) continue;
+      const ox = o.ox || 0, oy = o.oy || 0, x = o.x + ox, y = o.y + oy;
+      if (Math.abs(x - o.drawnX) + Math.abs(y - o.drawnY) > 90) continue;
+      undo.push([o, o.x, o.y]);
+      o.x = o.drawnX + (x - o.drawnX) * a - ox;
+      o.y = o.drawnY + (y - o.drawnY) * a - oy;
+    }
+    if (head !== null && undo.length && undo[undo.length - 1][0] === s) {
+      for (const t of m.fx.trails) {
+        const p = t.attached === s && t.pts[t.pts.length - 1];
+        if (!p || Math.abs(p.x - head) > 0.01) continue;
+        undo.push([p, p.x, p.y]);
+        p.x = s.x + (s.ox || 0) + G.LAYER_DX;
+        p.y = s.y + (s.oy || 0);
+      }
+    }
+    return undo;
+  }
+
   function scene(ctx, m, scale) {
+    const undo = between(m);
+    try {
+      drawScene(ctx, m, scale);
+    } finally {
+      for (const [o, x, y] of undo) {
+        o.x = x;
+        o.y = y;
+      }
+    }
+  }
+  function drawScene(ctx, m, scale) {
     background(ctx, scale);
     effects(ctx, m.fx, 'back');
     net(ctx, m.net);
